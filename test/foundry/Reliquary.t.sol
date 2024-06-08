@@ -100,15 +100,6 @@ contract ReliquaryTest is ERC721Holder, Test {
         ); // max 0,0001%
     }
 
-    // function testMassUpdatePools() public {
-    //     skip(1);
-    //     uint256[] memory pools = new uint256[](1);
-    //     pools[0] = 0;
-    //     vm.expectEmit(true, false, false, true);
-    //     emit ReliquaryEvents.LogUpdatePool(0, block.timestamp, 0, 0);
-    //     reliquary.massUpdatePools();
-    // }
-
     function testCreateRelicAndDeposit(uint256 amount) public {
         amount = bound(amount, 1, testToken.balanceOf(address(this)));
         vm.expectEmit(true, true, true, true);
@@ -327,59 +318,19 @@ contract ReliquaryTest is ERC721Holder, Test {
         }
     }
 
-    // function testDepositBonusRewarder() public {
-    //     DepositBonusRewarder rewarder = new DepositBonusRewarder(
-    //         1000 ether,
-    //         1 ether,
-    //         1 days,
-    //         address(oath),
-    //         address(reliquary)
-    //     );
-    //     oath.mint(address(rewarder), 1_000_000 ether);
+    function testPause() public {
+        reliquary.grantRole(keccak256("OPERATOR"), address(this));
+        vm.expectRevert();
+        reliquary.pause();
 
-    //     reliquary.addPool(
-    //         100,
-    //         address(testToken),
-    //         address(rewarder),
-    //         linearPlateauCurve,
-    //         "ETH Pool",
-    //         nftDescriptor,
-    //         true
-    //     );
+        reliquary.createRelicAndDeposit(address(this), 0, 1000);
 
-    //     uint relicId = reliquary.createRelicAndDeposit(address(this), 1, 1 ether);
-    //     skip(1 days);
-    //     rewarder.claimDepositBonus(relicId, address(this));
+        reliquary.grantRole(keccak256("GUARDIAN"), address(this));
+        reliquary.pause();
+        vm.expectRevert();
+        reliquary.createRelicAndDeposit(address(this), 0, 1000);
 
-    //     assertEq(oath.balanceOf(address(this)), 1000 ether);
-    // }
-
-    // function testParentRewarder() public {
-    //     ERC20Mock parentToken = new ERC20Mock("Parent Token", "PT", 18);
-    //     ParentRewarder parent = new ParentRewarder(5e17, address(parentToken), address(reliquary));
-    //     parentToken.mint(address(parent), 1_000_000 ether);
-    //     parent.grantRole(keccak256("CHILD_SETTER"), address(this));
-
-    //     ERC20Mock childToken = new ERC20Mock("Child Token", "CT", 6);
-    //     address child = parent.createChild(address(childToken), 2e6, address(this));
-    //     childToken.mint(child, 1_000_000 ether);
-
-    //     reliquary.addPool(
-    //         100,
-    //         address(testToken),
-    //         address(parent),
-    //         linearPlateauCurve,
-    //         "ETH Pool",
-    //         nftDescriptor,
-    //         true
-    //     );
-
-    //     uint relicId = reliquary.createRelicAndDeposit(address(this), 1, 1 ether);
-    //     skip(1 days);
-    //     reliquary.update(relicId, address(this));
-
-    //     assertApproxEqAbs(oath.balanceOf(address(this)), 4320 ether, 1e15);
-    //     assertApproxEqAbs(parentToken.balanceOf(address(this)), 2160 ether, 1e15);
-    //     assertApproxEqAbs(childToken.balanceOf(address(this)), 8640e6, 1e15);
-    // }
+        reliquary.unpause();
+        reliquary.createRelicAndDeposit(address(this), 0, 1000);
+    }
 }
