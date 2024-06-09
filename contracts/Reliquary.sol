@@ -14,6 +14,7 @@ import "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import "openzeppelin-contracts/contracts/utils/Multicall.sol";
 import "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
+import "openzeppelin-contracts/contracts/utils/Pausable.sol";
 
 /**
  * @title Reliquary
@@ -28,12 +29,13 @@ import "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
  * increased composability without affecting accounting logic too much, and users can
  * trade their Relics without withdrawing liquidity or affecting the position's maturity.
  */
-contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, ReentrancyGuard {
+contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
 
     /// @dev Access control roles.
     bytes32 private constant OPERATOR = keccak256("OPERATOR");
+    bytes32 private constant GUARDIAN = keccak256("GUARDIAN");
     bytes32 private constant EMISSION_RATE = keccak256("EMISSION_RATE");
 
     /// @dev Address of the reward token contract.
@@ -67,12 +69,27 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
     }
 
     // -------------- admin functions --------------
+    /**
+     * @notice Pause all functions except `emergencyWithdraw()`.
+     * @dev Restricted to the GUARDIAN role. 
+     */
+    function pause() public onlyRole(GUARDIAN) {
+        _pause();
+    }
+
+    /**
+     * @notice Unpause.
+     * @dev Restricted to the OPERATOR role. 
+     */
+    function unpause() public onlyRole(OPERATOR) {
+        _unpause();
+    }
 
     /**
      * @notice Sets a new EmissionRate for overall rewardToken emissions. Can only be called with the proper role.
      * @param _emissionRate The contract address for the EmissionRate, which will return the base emission rate.
      */
-    function setEmissionRate(uint256 _emissionRate) external onlyRole(EMISSION_RATE) {
+    function setEmissionRate(uint256 _emissionRate) external whenNotPaused onlyRole(EMISSION_RATE) {
         ReliquaryLogic._massUpdatePools(poolInfo, emissionRate, totalAllocPoint);
         emissionRate = _emissionRate;
         emit ReliquaryEvents.LogSetEmissionRate(_emissionRate);
@@ -101,7 +118,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
         address _nftDescriptor,
         bool _allowPartialWithdrawals,
         address _to
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) external whenNotPaused onlyRole(DEFAULT_ADMIN_ROLE) {
         ReliquaryLogic._massUpdatePools(poolInfo, emissionRate, totalAllocPoint);
 
         // ----------------- Intensive curve compatibility checks.
@@ -186,7 +203,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
         string calldata _name,
         address _nftDescriptor,
         bool _overwriteRewarder
-    ) external onlyRole(OPERATOR) {
+    ) external whenNotPaused onlyRole(OPERATOR) {
         if (_poolId >= uint8(poolInfo.length)) revert Reliquary__NON_EXISTENT_POOL();
 
         ReliquaryLogic._massUpdatePools(poolInfo, emissionRate, totalAllocPoint);
@@ -217,7 +234,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
     /**
      * @notice Update reward variables for all pools. Be careful of gas spending!
      */
-    function massUpdatePools() external nonReentrant {
+    function massUpdatePools() external nonReentrant whenNotPaused {
         ReliquaryLogic._massUpdatePools(poolInfo, emissionRate, totalAllocPoint);
     }
 
@@ -225,7 +242,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
      * @notice Update reward variables of the given pool.
      * @param _poolId The index of the pool. See poolInfo.
      */
-    function updatePool(uint8 _poolId) external nonReentrant {
+    function updatePool(uint8 _poolId) external nonReentrant whenNotPaused {
         ReliquaryLogic._updatePool(poolInfo[_poolId], emissionRate, totalAllocPoint);
     }
 
@@ -236,7 +253,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
      * @param _relicId NFT ID of the position being harvested.
      * @param _harvestTo Address to send rewards to (zero address if harvest should not be performed).
      */
-    function update(uint256 _relicId, address _harvestTo) external nonReentrant {
+    function update(uint256 _relicId, address _harvestTo) external nonReentrant whenNotPaused {
         if (_harvestTo != address(0)) _requireApprovedOrOwner(_relicId);
         else _requireOwned(_relicId);
         _update(_relicId, _harvestTo);
@@ -250,7 +267,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
      * @param _relicId NFT ID of the position being deposited to.
      * @param _harvestTo Address to send rewards to (zero address if harvest should not be performed).
      */
-    function deposit(uint256 _amount, uint256 _relicId, address _harvestTo) external nonReentrant {
+    function deposit(uint256 _amount, uint256 _relicId, address _harvestTo) external nonReentrant whenNotPaused {
         _requireApprovedOrOwner(_relicId);
         _deposit(_amount, _relicId, _harvestTo);
     }
@@ -266,6 +283,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
     function withdraw(uint256 _amount, uint256 _relicId, address _harvestTo)
         external
         nonReentrant
+        whenNotPaused
     {
         _requireApprovedOrOwner(_relicId);
         _withdraw(_amount, _relicId, _harvestTo);
@@ -307,6 +325,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
     function createRelicAndDeposit(address _to, uint8 _poolId, uint256 _amount)
         public
         nonReentrant
+        whenNotPaused
         returns (uint256 relicId_)
     {
         relicId_ = _create(_poolId, _to);
@@ -314,7 +333,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
     }
 
     /// @notice Burns the Relic with ID `_relicId`. Cannot be called if there is any principal or rewards in the Relic.
-    function burn(uint256 _relicId) public nonReentrant {
+    function burn(uint256 _relicId) public nonReentrant whenNotPaused {
         _requireApprovedOrOwner(_relicId);
         PositionInfo storage position = positionForId[_relicId];
         if (position.amount != 0) revert Reliquary__BURNING_PRINCIPAL();
@@ -344,6 +363,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
     function split(uint256 _fromId, uint256 _amount, address _to)
         public
         nonReentrant
+        whenNotPaused
         returns (uint256 newId_)
     {
         if (_amount == 0) revert Reliquary__ZERO_INPUT();
@@ -406,7 +426,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
      * @param _toId The NFT ID of the Relic being transferred to.
      * @param _amount The amount being transferred.
      */
-    function shift(uint256 _fromId, uint256 _toId, uint256 _amount) public nonReentrant {
+    function shift(uint256 _fromId, uint256 _toId, uint256 _amount) public nonReentrant whenNotPaused {
         if (_amount == 0) revert Reliquary__ZERO_INPUT();
         if (_fromId == _toId) revert Reliquary__DUPLICATE_RELIC_IDS();
         _requireApprovedOrOwner(_fromId);
@@ -499,7 +519,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
      * @param _fromId The NFT ID of the Relic to transfer from.
      * @param _toId The NFT ID of the Relic being transferred to.
      */
-    function merge(uint256 _fromId, uint256 _toId) public nonReentrant {
+    function merge(uint256 _fromId, uint256 _toId) public nonReentrant whenNotPaused {
         if (_fromId == _toId) revert Reliquary__DUPLICATE_RELIC_IDS();
         _requireApprovedOrOwner(_fromId);
         _requireApprovedOrOwner(_toId);
