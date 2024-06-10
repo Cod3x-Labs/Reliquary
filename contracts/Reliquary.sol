@@ -29,7 +29,14 @@ import "openzeppelin-contracts/contracts/utils/Pausable.sol";
  * increased composability without affecting accounting logic too much, and users can
  * trade their Relics without withdrawing liquidity or affecting the position's maturity.
  */
-contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, ReentrancyGuard, Pausable {
+contract Reliquary is
+    IReliquary,
+    Multicall,
+    ERC721,
+    AccessControlEnumerable,
+    ReentrancyGuard,
+    Pausable
+{
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
 
@@ -71,7 +78,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
     // -------------- admin functions --------------
     /**
      * @notice Pause all functions except `emergencyWithdraw()`.
-     * @dev Restricted to the GUARDIAN role. 
+     * @dev Restricted to the GUARDIAN role.
      */
     function pause() public onlyRole(GUARDIAN) {
         _pause();
@@ -79,7 +86,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
 
     /**
      * @notice Unpause.
-     * @dev Restricted to the OPERATOR role. 
+     * @dev Restricted to the OPERATOR role.
      */
     function unpause() public onlyRole(OPERATOR) {
         _unpause();
@@ -89,7 +96,11 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
      * @notice Sets a new EmissionRate for overall rewardToken emissions. Can only be called with the proper role.
      * @param _emissionRate The contract address for the EmissionRate, which will return the base emission rate.
      */
-    function setEmissionRate(uint256 _emissionRate) external whenNotPaused onlyRole(EMISSION_RATE) {
+    function setEmissionRate(uint256 _emissionRate)
+        external
+        whenNotPaused
+        onlyRole(EMISSION_RATE)
+    {
         ReliquaryLogic._massUpdatePools(poolInfo, emissionRate, totalAllocPoint);
         emissionRate = _emissionRate;
         emit ReliquaryEvents.LogSetEmissionRate(_emissionRate);
@@ -267,7 +278,11 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
      * @param _relicId NFT ID of the position being deposited to.
      * @param _harvestTo Address to send rewards to (zero address if harvest should not be performed).
      */
-    function deposit(uint256 _amount, uint256 _relicId, address _harvestTo) external nonReentrant whenNotPaused {
+    function deposit(uint256 _amount, uint256 _relicId, address _harvestTo)
+        external
+        nonReentrant
+        whenNotPaused
+    {
         _requireApprovedOrOwner(_relicId);
         _deposit(_amount, _relicId, _harvestTo);
     }
@@ -366,6 +381,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
         whenNotPaused
         returns (uint256 newId_)
     {
+        if (_fromId == 1) revert Reliquary__RELIC1_PROHIBITED_ACTION();
         if (_amount == 0) revert Reliquary__ZERO_INPUT();
         _requireApprovedOrOwner(_fromId);
 
@@ -426,7 +442,12 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
      * @param _toId The NFT ID of the Relic being transferred to.
      * @param _amount The amount being transferred.
      */
-    function shift(uint256 _fromId, uint256 _toId, uint256 _amount) public nonReentrant whenNotPaused {
+    function shift(uint256 _fromId, uint256 _toId, uint256 _amount)
+        public
+        nonReentrant
+        whenNotPaused
+    {
+        if (_fromId == 1 || _toId == 1) revert Reliquary__RELIC1_PROHIBITED_ACTION();
         if (_amount == 0) revert Reliquary__ZERO_INPUT();
         if (_fromId == _toId) revert Reliquary__DUPLICATE_RELIC_IDS();
         _requireApprovedOrOwner(_fromId);
@@ -520,6 +541,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
      * @param _toId The NFT ID of the Relic being transferred to.
      */
     function merge(uint256 _fromId, uint256 _toId) public nonReentrant whenNotPaused {
+        if (_fromId == 1 || _toId == 1) revert Reliquary__RELIC1_PROHIBITED_ACTION();
         if (_fromId == _toId) revert Reliquary__DUPLICATE_RELIC_IDS();
         _requireApprovedOrOwner(_fromId);
         _requireApprovedOrOwner(_toId);

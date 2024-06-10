@@ -93,6 +93,7 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
             vm.startPrank(users[u]);
             suppliedToken.mint(users[u], initialMint);
             suppliedToken.approve(address(reliquary), type(uint256).max);
+            vm.stopPrank();
         }
     }
 
@@ -575,6 +576,39 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
             assertApproxEqRel(
                 rewardTokens[i].balanceOf(users[1]), initialFunding[i] * 2 / 3, 0.005e18
             ); // 0,005%
+        }
+    }
+
+    function testRelic1Rewarder1(uint256 seedInitialFunding, uint256 seedTime) public {
+        uint256[] memory initialFunding = new uint256[](nbChildRewarder);
+        for (uint256 i = 0; i < nbChildRewarder; i++) {
+            initialFunding[i] = bound(seedInitialFunding / (i + 1), 100000, initialMint / 2);
+        }
+
+        for (uint256 i = 0; i < nbChildRewarder; i++) {
+            childRewarders[i].fund(initialFunding[i]);
+        }
+
+        uint256 time = bound(seedTime, 1 hours, initialDistributionPeriod - 1 days);
+
+        uint256 relic1 = 1;
+        reliquary.deposit(999, relic1, address(0));
+        uint256 relic2 = reliquary.createRelicAndDeposit(address(this), 0, 1000);
+
+        skip(time);
+
+        reliquary.update(relic1, address(11));
+        reliquary.update(relic2, address(22));
+
+        skip(time);
+
+        reliquary.update(relic1, address(11));
+        reliquary.update(relic2, address(22));
+
+
+        for (uint256 i = 0; i < nbChildRewarder; i++) {
+            // test relic 1 linearity
+            assertGt(rewardTokens[i].balanceOf(address(22)), rewardTokens[i].balanceOf(address(11)));
         }
     }
 }

@@ -59,7 +59,7 @@ contract ReliquaryTest is ERC721Holder, Test {
             "ETH Pool",
             nftDescriptor,
             true,
-            address(5)
+            address(this)
         );
 
         testToken.approve(address(reliquary), type(uint256).max);
@@ -195,7 +195,7 @@ contract ReliquaryTest is ERC721Holder, Test {
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, depositAmount);
         uint256 newRelicId = reliquary.split(relicId, splitAmount, address(this));
 
-        assertEq(reliquary.balanceOf(address(this)), 2);
+        assertEq(reliquary.balanceOf(address(this)), 3);
         assertEq(reliquary.getPositionForId(relicId).amount, depositAmount - splitAmount);
         assertEq(reliquary.getPositionForId(newRelicId).amount, splitAmount);
     }
@@ -298,10 +298,10 @@ contract ReliquaryTest is ERC721Holder, Test {
         vm.expectRevert(IReliquary.Reliquary__NOT_APPROVED_OR_OWNER.selector);
         vm.prank(address(1));
         reliquary.burn(relicId);
-        assertEq(reliquary.balanceOf(address(this)), 1);
+        assertEq(reliquary.balanceOf(address(this)), 2);
 
         reliquary.burn(relicId);
-        assertEq(reliquary.balanceOf(address(this)), 0);
+        assertEq(reliquary.balanceOf(address(this)), 1);
     }
 
     function testPocShiftVulnerability() public {
@@ -332,5 +332,134 @@ contract ReliquaryTest is ERC721Holder, Test {
 
         reliquary.unpause();
         reliquary.createRelicAndDeposit(address(this), 0, 1000);
+    }
+
+    function testRelic1Level() public {
+        uint256 relic1 = 1;
+
+        reliquary.deposit(999, 1, address(0));
+        vm.stopPrank();
+        uint256 relic2 = reliquary.createRelicAndDeposit(address(this), 0, 1000);
+
+        assertEq(reliquary.getPositionForId(relic1).level, 0);
+        assertEq(reliquary.getPositionForId(relic2).level, 0);
+
+        skip(1 days);
+
+        reliquary.update(relic1, address(0));
+        reliquary.update(relic2, address(0));
+
+        assertEq(reliquary.getPositionForId(relic1).level, 0);
+        assertGt(reliquary.getPositionForId(relic2).level, 0);
+
+        skip(1 days);
+
+        reliquary.update(relic1, address(0));
+        reliquary.update(relic2, address(0));
+
+        assertEq(reliquary.getPositionForId(relic1).level, 0);
+        assertGt(reliquary.getPositionForId(relic2).level, 0);
+    }
+
+    function testRelic1RewardDistribution1(uint256 seedTime) public {
+        uint256 time = bound(seedTime, 1, 365 days);
+
+        uint256 relic1 = 1;
+
+        reliquary.deposit(999, 1, address(0));
+        vm.stopPrank();
+        uint256 relic2 = reliquary.createRelicAndDeposit(address(this), 0, 1000);
+
+        skip(time);
+
+        reliquary.update(relic1, address(11));
+        reliquary.update(relic2, address(22));
+
+        skip(time);
+
+        reliquary.update(relic1, address(11));
+        reliquary.update(relic2, address(22));
+
+        // test relic 1 linearity
+        assertGt(oath.balanceOf(address(22)), oath.balanceOf(address(11)));
+    }
+
+    function testRelic1RewardDistribution2(uint256 seedTime) public {
+        uint256 time = bound(seedTime, 1, 365 days);
+
+        uint256 relic1 = 1;
+
+        reliquary.deposit(999, 1, address(0));
+        reliquary.createRelicAndDeposit(address(this), 0, 1000);
+
+        skip(time);
+
+        reliquary.update(relic1, address(11));
+
+        uint256 balance11 = oath.balanceOf(address(11));
+
+        skip(time);
+
+        reliquary.update(relic1, address(11));
+
+        // test relic 1 linearity
+        assertApproxEqRel(oath.balanceOf(address(11)), balance11 * 2, 1e2); // 0
+
+        skip(time);
+
+        reliquary.update(relic1, address(11));
+
+        // test relic 1 linearity
+        assertApproxEqRel(oath.balanceOf(address(11)), balance11 * 3, 1e2); // 0
+    }
+
+    function testRelic2ToNRewardDistribution() public {
+        uint256 time = 365 days; // bound(seedTime, 1, 365 days);
+
+        reliquary.deposit(999, 1, address(0));
+        uint256 relic2 = reliquary.createRelicAndDeposit(address(this), 0, 1000);
+
+        skip(time);
+
+        reliquary.update(relic2, address(22));
+
+        uint256 balance22 = oath.balanceOf(address(22));
+
+        skip(time);
+
+        reliquary.update(relic2, address(22));
+
+        // test relic 1 linearity
+        assertGt(oath.balanceOf(address(22)), balance22 * 2); // 0
+
+        skip(time);
+
+        reliquary.update(relic2, address(22));
+
+        // test relic 1 linearity
+        assertGt(oath.balanceOf(address(22)), balance22 * 3); // 0
+    }
+
+    function testRelic1ProhibitedActions() public {
+        uint256 relic1 = 1;
+
+        reliquary.deposit(999, 1, address(0));
+        vm.stopPrank();
+        uint256 relic2 = reliquary.createRelicAndDeposit(address(this), 0, 1000);
+
+        vm.expectRevert(IReliquary.Reliquary__RELIC1_PROHIBITED_ACTION.selector);
+        reliquary.split(relic1, 500, address(0));
+
+        vm.expectRevert(IReliquary.Reliquary__RELIC1_PROHIBITED_ACTION.selector);
+        reliquary.shift(relic1, relic2, 500);
+
+        vm.expectRevert(IReliquary.Reliquary__RELIC1_PROHIBITED_ACTION.selector);
+        reliquary.shift(relic2, relic1, 500);
+
+        vm.expectRevert(IReliquary.Reliquary__RELIC1_PROHIBITED_ACTION.selector);
+        reliquary.merge(relic1, relic2);
+
+        vm.expectRevert(IReliquary.Reliquary__RELIC1_PROHIBITED_ACTION.selector);
+        reliquary.merge(relic2, relic1);
     }
 }

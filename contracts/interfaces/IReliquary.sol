@@ -81,6 +81,7 @@ interface IReliquary is IERC721 {
     error Reliquary__MULTIPLIER_AT_LEVEL_ZERO_SHOULD_BE_GT_ZERO();
     error Reliquary__REWARD_PRECISION_ISSUE();
     error Reliquary__CURVE_OVERFLOW();
+    error Reliquary__RELIC1_PROHIBITED_ACTION();
 
     function setEmissionRate(uint256 _emissionRate) external;
 

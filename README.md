@@ -1,4 +1,4 @@
-# Reliquary V2
+# Reliquary V2 - cdxUSD staking module
 
 ![Reliquary](header.png "Reliquary")
 
@@ -20,6 +20,13 @@ random curve, you can codify the user behaviors you'd like to promote.
 
 Please reach out to zokunei@bytemasons.com to report bugs or other funky behavior. We will proceed with various stages of production
 testing in the coming weeks.
+
+## cdxUSD staking module update notes
+
+This Reliquary Fork is used as a component of the cdxUSD Staking Module.
+
+1. **Relic#1 will remain at level 1**: A [Cod3x vault](https://github.com/Cod3x-Labs/Cod3x-Vault) strategy will tokenize the Relic#1 and mint a `scdxUSD` ERC20.
+
 
 ## V2 update notes
 

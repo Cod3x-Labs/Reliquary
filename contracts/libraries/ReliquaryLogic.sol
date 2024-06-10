@@ -69,7 +69,12 @@ library ReliquaryLogic {
         }
 
         vars_.oldLevel = uint256(position.level);
-        vars_.newLevel = _updateLevel(position, vars_.oldLevel);
+
+        if (_relicId != 1) {
+            vars_.newLevel = _updateLevel(position, vars_.oldLevel);
+        } else {
+            vars_.newLevel = vars_.oldLevel;
+        }
 
         position.rewardCredit += Math.mulDiv(
             vars_.oldAmount,
