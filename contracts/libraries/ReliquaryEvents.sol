@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.22;
 
 library ReliquaryEvents {
     event CreateRelic(uint8 indexed pid, address indexed to, uint256 indexed relicId);

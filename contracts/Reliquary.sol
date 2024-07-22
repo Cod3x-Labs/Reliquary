@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.22;
 
 import "./interfaces/IReliquary.sol";
 import "./interfaces/IParentRollingRewarder.sol";
@@ -7,6 +7,7 @@ import "./interfaces/IRewarder.sol";
 import "./interfaces/INFTDescriptor.sol";
 import "./libraries/ReliquaryLogic.sol";
 import "./libraries/ReliquaryEvents.sol";
+import "./libraries/ReliquaryRehypothecationLogic.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
 import "openzeppelin-contracts/contracts/access/extensions/AccessControlEnumerable.sol";
@@ -31,7 +32,7 @@ import "openzeppelin-contracts/contracts/utils/Pausable.sol";
  */
 contract Reliquary is
     IReliquary,
-    Multicall,
+    // Multicall,
     ERC721,
     AccessControlEnumerable,
     ReentrancyGuard,
@@ -53,6 +54,8 @@ contract Reliquary is
     uint256 public totalAllocPoint;
     /// @dev Nonce to use for new relicId.
     uint256 private idNonce;
+    /// @dev Treasury receive funds from rehypotheration claim.
+    address public treasury;
 
     /// @dev Info of each Reliquary pool.
     PoolInfo[] private poolInfo;
@@ -136,10 +139,11 @@ contract Reliquary is
         {
             if (_poolToken == rewardToken) revert Reliquary__REWARD_TOKEN_AS_POOL_TOKEN();
 
-            // Tokens with more than the maximum allowed supply can't serve as pool tokens.
-            if (IERC20(_poolToken).totalSupply() > MAX_SUPPLY_ALLOWED) {
-                revert Reliquary__TOKEN_NOT_COMPATIBLE();
-            }
+            // TODO evaluate risk
+            // // Tokens with more than the maximum allowed supply can't serve as pool tokens.
+            // if (IERC20(_poolToken).totalSupply() > MAX_SUPPLY_ALLOWED) {
+            //     revert Reliquary__TOKEN_NOT_COMPATIBLE();
+            // }
 
             // Multiplier at f(0) must not be 0.
             if (_curve.getFunction(0) == 0) {
@@ -182,7 +186,8 @@ contract Reliquary is
                 allowPartialWithdrawals: _allowPartialWithdrawals,
                 nftDescriptor: _nftDescriptor,
                 rewarder: _rewarder,
-                poolToken: _poolToken
+                poolToken: _poolToken,
+                rehypothecation: address(0)
             })
         );
 
@@ -238,6 +243,50 @@ contract Reliquary is
         emit ReliquaryEvents.LogPoolModified(
             _poolId, _allocPoint, _overwriteRewarder ? _rewarder : pool.rewarder, _nftDescriptor
         );
+    }
+
+    /**
+     * @notice Enable rehypothecation for the given pool. Can only be called by an operator.
+     * @param _pid The index of the pool.
+     * @param _rehypothecation Address of the rehypothecation contract.
+     */
+    function enableRehypothecation(uint256 _pid, address _rehypothecation)
+        external
+        onlyRole(OPERATOR)
+    {
+        if (treasury == address(0)) revert Reliquary__TREASURY_UNDEFINED();
+        ReliquaryRehypothecationLogic._enableRehypothecation(poolInfo[_pid], _rehypothecation);
+    }
+
+    /**
+     * @notice Disable rehypothecation for the given pool. Can only be called by an operator.
+     * @param _pid The index of the pool. See poolInfo.
+     * @param _claimRewards Boolean to indicate whether to claim rewards or not.
+     */
+    function disableRehypothecation(uint256 _pid, bool _claimRewards) external onlyRole(OPERATOR) {
+        if (treasury == address(0)) revert Reliquary__TREASURY_UNDEFINED();
+        ReliquaryRehypothecationLogic._disableRehypothecation(
+            poolInfo[_pid], treasury, _claimRewards
+        );
+    }
+
+    /**
+     * @notice Claim rehypothecation for the given pool.
+     *        Can be called by anyone when the contract is not paused.
+     * @param _pid The index of the pool. See poolInfo.
+     */
+    function claimRehypothecation(uint256 _pid) external whenNotPaused {
+        if (treasury == address(0)) revert Reliquary__TREASURY_UNDEFINED();
+        ReliquaryRehypothecationLogic._claim(poolInfo[_pid], treasury);
+    }
+
+    /**
+     * @notice Set the address of the treasury. Can only be called by an operator.
+     * @param _treasury The new address of the treasury.
+     */
+    function setTreasury(address _treasury) external onlyRole(OPERATOR) {
+        if (_treasury == address(0)) revert Reliquary__ZERO_INPUT();
+        treasury = _treasury;
     }
 
     // -------------- externals --------------
@@ -325,6 +374,8 @@ contract Reliquary is
 
         _burn(_relicId);
         delete positionForId[_relicId];
+
+        ReliquaryRehypothecationLogic._withdraw(pool, amount_);
 
         IERC20(pool.poolToken).safeTransfer(to_, amount_);
 
@@ -633,7 +684,10 @@ contract Reliquary is
 
         uint8 poolId_ = _updatePosition(_amount, _relicId, Kind.DEPOSIT, _harvestTo);
 
-        IERC20(poolInfo[poolId_].poolToken).safeTransferFrom(msg.sender, address(this), _amount);
+        PoolInfo storage pool = poolInfo[poolId_];
+
+        IERC20(pool.poolToken).safeTransferFrom(msg.sender, address(this), _amount);
+        ReliquaryRehypothecationLogic._deposit(pool);
 
         emit ReliquaryEvents.Deposit(poolId_, _amount, ownerOf(_relicId), _relicId);
     }
@@ -648,7 +702,10 @@ contract Reliquary is
 
         uint8 poolId_ = _updatePosition(_amount, _relicId, Kind.WITHDRAW, _harvestTo);
 
-        IERC20(poolInfo[poolId_].poolToken).safeTransfer(msg.sender, _amount);
+        PoolInfo storage pool = poolInfo[poolId_];
+
+        ReliquaryRehypothecationLogic._withdraw(pool, _amount);
+        IERC20(pool.poolToken).safeTransfer(msg.sender, _amount);
 
         emit ReliquaryEvents.Withdraw(poolId_, _amount, msg.sender, _relicId);
     }
@@ -713,6 +770,11 @@ contract Reliquary is
         }
     }
     // -------------- views --------------
+
+    /// @notice Returns the amount of `poolToken` in Relic#1.
+    function getAmountInRelic(uint256 _relicId) external view returns (uint256) {
+        return positionForId[_relicId].amount;
+    }
 
     /// @notice Returns a PositionInfo object for the given relicId.
     function getPositionForId(uint256 _relicId)

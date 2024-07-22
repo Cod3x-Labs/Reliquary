@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.22;
 
-import "contracts/interfaces/ICurves.sol";
-import "lib/openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import "../interfaces/ICurves.sol";
+import "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 
 /// @dev Level of precision rewards are calculated to.
 uint256 constant ACC_REWARD_PRECISION = 1e41;
@@ -60,6 +60,7 @@ struct PoolInfo {
     uint40 lastRewardTime;
     bool allowPartialWithdrawals;
     uint96 allocPoint;
+    address rehypothecation;
     ICurves curve;
 }
 
@@ -82,6 +83,11 @@ interface IReliquary is IERC721 {
     error Reliquary__REWARD_PRECISION_ISSUE();
     error Reliquary__CURVE_OVERFLOW();
     error Reliquary__RELIC1_PROHIBITED_ACTION();
+    error Reliquary__TREASURY_UNDEFINED();
+
+    function pause() external;
+
+    function unpause() external;
 
     function setEmissionRate(uint256 _emissionRate) external;
 
@@ -105,6 +111,14 @@ interface IReliquary is IERC721 {
         bool _overwriteRewarder
     ) external;
 
+    function enableRehypothecation(uint256 _pid, address _rehypothecation) external;
+
+    function disableRehypothecation(uint256 _pid, bool _claimRewards) external;
+
+    function claimRehypothecation(uint256 _pid) external;
+
+    function setTreasury(address _treasury) external;
+
     function massUpdatePools() external;
 
     function updatePool(uint8 _poolId) external;
@@ -118,6 +132,8 @@ interface IReliquary is IERC721 {
     function emergencyWithdraw(uint256 _relicId) external;
 
     function poolLength() external view returns (uint256 pools_);
+
+    function getAmountInRelic(uint256 _posId) external view returns (uint256);
 
     function getPositionForId(uint256 _posId) external view returns (PositionInfo memory);
 

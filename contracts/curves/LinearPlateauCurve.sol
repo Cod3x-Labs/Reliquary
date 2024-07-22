@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.22;
 
-import "contracts/interfaces/ICurves.sol";
+import "../interfaces/ICurves.sol";
 
 contract LinearPlateauCurve is ICurves {
     uint256 public immutable slope;

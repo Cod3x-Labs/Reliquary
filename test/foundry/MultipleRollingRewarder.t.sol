@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.22;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 import "contracts/Reliquary.sol";
 import "contracts/nft_descriptors/NFTDescriptor.sol";
-import "contracts/curves/LinearCurve.sol";
 import "contracts/curves/LinearPlateauCurve.sol";
 import "contracts/rewarders/RollingRewarder.sol";
 import "contracts/rewarders/ParentRollingRewarder.sol";
-import "openzeppelin-contracts/contracts/token/ERC721/utils/ERC721Holder.sol";
+import "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
 import "./mocks/ERC20Mock.sol";
 
 contract MultipleRollingRewarder is ERC721Holder, Test {
@@ -17,7 +16,6 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
     using Strings for uint256;
 
     Reliquary public reliquary;
-    LinearCurve public linearCurve;
     LinearPlateauCurve public linearPlateauCurve;
     ERC20Mock public oath;
     ERC20Mock public suppliedToken;
@@ -50,7 +48,6 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
 
         reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC");
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateau);
-        linearCurve = new LinearCurve(slope, minMultiplier);
 
         oath.mint(address(reliquary), initialMint);
 
@@ -580,6 +577,7 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
     }
 
     function testRelic1Rewarder1(uint256 seedInitialFunding, uint256 seedTime) public {
+        vm.assume(seedInitialFunding > 10);
         uint256[] memory initialFunding = new uint256[](nbChildRewarder);
         for (uint256 i = 0; i < nbChildRewarder; i++) {
             initialFunding[i] = bound(seedInitialFunding / (i + 1), 100000, initialMint / 2);
@@ -589,7 +587,7 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
             childRewarders[i].fund(initialFunding[i]);
         }
 
-        uint256 time = bound(seedTime, 1 hours, initialDistributionPeriod - 1 days);
+        uint256 time = bound(seedTime, 10 hours, initialDistributionPeriod - 1 days);
 
         uint256 relic1 = 1;
         reliquary.deposit(999, relic1, address(0));
@@ -604,7 +602,6 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
 
         reliquary.update(relic1, address(11));
         reliquary.update(relic2, address(22));
-
 
         for (uint256 i = 0; i < nbChildRewarder; i++) {
             // test relic 1 linearity

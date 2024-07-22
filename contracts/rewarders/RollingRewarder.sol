@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.22;
 
 import "../interfaces/IRollingRewarder.sol";
 import "../interfaces/IRewarder.sol";

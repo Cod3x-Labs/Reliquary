@@ -1,5 +1,8 @@
 # Reliquary V2 - cdxUSD staking module
 
+**This branch is for the sole purpose of facilitating differential security reviews.**
+**The production repo is [Cod3x-USD](https://github.com/Cod3x-Labs/Cod3x-USD/tree/main/contracts/staking_module/reliquary).**
+
 ![Reliquary](header.png "Reliquary")
 
 > Designed and written by [Justin Bebis](https://twitter.com/0xBebis_), Zokunei and [Beirao](https://twitter.com/0xBeirao), with help from [Goober](https://twitter.com/0xGoober) and the rest of the [Byte Masons](https://twitter.com/ByteMasons) crew.

@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.22;
 
 import "contracts/Reliquary.sol";
 import "contracts/interfaces/IReliquary.sol";
 import "./mocks/ERC20Mock.sol";
 import "contracts/nft_descriptors/NFTDescriptor.sol";
-import "lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import "contracts/interfaces/ICurves.sol";
-import "contracts/curves/LinearCurve.sol";
 import "contracts/curves/LinearPlateauCurve.sol";
-import "contracts/curves/PolynomialPlateauCurve.sol";
 
 // The only unfuzzed method is reliquary.setEmissionRate()
 contract User {
@@ -66,9 +64,7 @@ contract ReliquaryProperties {
     ERC20Mock public rewardToken;
     Reliquary public reliquary;
     NFTDescriptor public nftDescriptor;
-    LinearCurve linearCurve;
     LinearPlateauCurve linearPlateauCurve;
-    PolynomialPlateauCurve polynomialPlateauCurve;
 
     event LogUint(uint256 a);
 
@@ -80,7 +76,7 @@ contract ReliquaryProperties {
 
         startTimestamp = block.timestamp;
         /// setup reliquary
-        rewardToken = new ERC20Mock("OATH Token", "OATH");
+        rewardToken = new ERC20Mock(18);
         reliquary = new Reliquary(address(rewardToken), emissionRate, "Relic", "NFT");
         nftDescriptor = new NFTDescriptor(address(reliquary));
 
@@ -88,19 +84,15 @@ contract ReliquaryProperties {
         for (uint256 i = 0; i < 5; i++) {
             coeffDynamic[i] = coeff[i];
         }
-        linearCurve = new LinearCurve(slope, minMultiplier);
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateauLinear);
-        polynomialPlateauCurve = new PolynomialPlateauCurve(coeffDynamic, plateauPoly);
 
-        curves.push(linearCurve);
         curves.push(linearPlateauCurve);
-        curves.push(polynomialPlateauCurve);
 
         rewardToken.mint(address(reliquary), 100 ether); // provide rewards to reliquary contract
 
         /// setup token pool
         for (uint8 i = 0; i < totalNbPools; i++) {
-            ERC20Mock token = new ERC20Mock("Pool Token", "PT");
+            ERC20Mock token = new ERC20Mock(18);
             tokenPoolIds.push(token);
 
             token.mint(address(this), 1);
@@ -111,7 +103,7 @@ contract ReliquaryProperties {
                 100,
                 address(token),
                 address(0),
-                polynomialPlateauCurve,
+                linearPlateauCurve,
                 "reaper",
                 address(nftDescriptor),
                 true, address(this)
@@ -149,7 +141,7 @@ contract ReliquaryProperties {
         uint maxSize = 10;
         require(allocPoint > 0);
         uint8 startPoolIdsLen = uint8(poolIds.length);
-        ERC20Mock token = new ERC20Mock("Pool Token", "PT");
+        ERC20Mock token = new ERC20Mock(18);
         tokenPoolIds.push(token);
         ICurves curve = curves[randCurves % curves.length];
 

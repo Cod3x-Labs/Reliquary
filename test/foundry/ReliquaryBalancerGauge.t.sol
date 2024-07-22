@@ -9,15 +9,17 @@ import "contracts/interfaces/IReliquary.sol";
 import "contracts/nft_descriptors/NFTDescriptor.sol";
 import "contracts/curves/LinearPlateauCurve.sol";
 import "./mocks/ERC20Mock.sol";
+import "contracts/rehypothecation_adapters/GaugeBalancer.sol";
 
-contract ReliquaryTest is ERC721Holder, Test {
+contract ReliquaryBlancerGaugeTest is ERC721Holder, Test {
     using Strings for address;
     using Strings for uint256;
 
     Reliquary reliquary;
     LinearPlateauCurve linearPlateauCurve;
     ERC20Mock oath;
-    ERC20Mock testToken;
+    GaugeBalancer gaugeBalancer;
+
     address nftDescriptor;
     uint256 emissionRate = 1e17;
 
@@ -25,13 +27,18 @@ contract ReliquaryTest is ERC721Holder, Test {
     uint256 slope = 100; // Increase of multiplier every second
     uint256 minMultiplier = 365 days * 100; // Arbitrary (but should be coherent with slope)
     uint256 plateau = 10 days;
-    int256[] public coeff = [int256(100e18), int256(1e18), int256(5e15), int256(-1e13), int256(5e9)];
+    address treasury = address(0xccc);
+
+    uint256 forkIdPolygon;
+    address wmatic = address(0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270);
+    address balToken = address(0xba100000625a3754423978a60c9317c58a424e3D);
+    address balancerPool = address(0x4B7586A4F49841447150D3d92d9E9e000f766c30);
+    address gauge = address(0x07dAcD2229824D6Ff928181563745a573b026B3d);
+    address dai = address(0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063);
 
     function setUp() public {
-        int256[] memory coeffDynamic = new int256[](5);
-        for (uint256 i = 0; i < 5; i++) {
-            coeffDynamic[i] = coeff[i];
-        }
+        forkIdPolygon = vm.createFork(vm.envString("POLYGON_RPC_URL"), 58870669);
+        vm.selectFork(forkIdPolygon);
 
         oath = new ERC20Mock(18);
         reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC");
@@ -39,15 +46,14 @@ contract ReliquaryTest is ERC721Holder, Test {
 
         oath.mint(address(reliquary), 100_000_000 ether);
 
-        testToken = new ERC20Mock(6);
         nftDescriptor = address(new NFTDescriptor(address(reliquary)));
 
         reliquary.grantRole(keccak256("OPERATOR"), address(this));
-        testToken.mint(address(this), 100_000_000 ether);
-        testToken.approve(address(reliquary), 1);
+        deal(balancerPool, address(this), 100_000_000 ether);
+        IERC20(balancerPool).approve(address(reliquary), 1);
         reliquary.addPool(
             100,
-            address(testToken),
+            address(balancerPool),
             address(0),
             linearPlateauCurve,
             "ETH Pool",
@@ -56,7 +62,13 @@ contract ReliquaryTest is ERC721Holder, Test {
             address(this)
         );
 
-        testToken.approve(address(reliquary), type(uint256).max);
+        gaugeBalancer = new GaugeBalancer(address(reliquary), gauge, balancerPool);
+
+        IERC20(balancerPool).approve(address(gaugeBalancer), type(uint256).max);
+        IERC20(balancerPool).approve(address(reliquary), type(uint256).max);
+
+        reliquary.setTreasury(treasury);
+        reliquary.enableRehypothecation(0, address(gaugeBalancer));
     }
 
     function testModifyPool() public {
@@ -78,7 +90,7 @@ contract ReliquaryTest is ERC721Holder, Test {
 
     function testPendingOath(uint256 amount, uint256 time) public {
         time = bound(time, 0, 3650 days);
-        amount = bound(amount, 1, testToken.balanceOf(address(this)));
+        amount = bound(amount, 1, IERC20(balancerPool).balanceOf(address(this)));
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, amount);
         skip(time);
         reliquary.update(relicId, address(0));
@@ -91,7 +103,7 @@ contract ReliquaryTest is ERC721Holder, Test {
     }
 
     function testCreateRelicAndDeposit(uint256 amount) public {
-        amount = bound(amount, 1, testToken.balanceOf(address(this)));
+        amount = bound(amount, 1, IERC20(balancerPool).balanceOf(address(this)));
         vm.expectEmit(true, true, true, true);
         emit ReliquaryEvents.Deposit(0, amount, address(this), 2);
         reliquary.createRelicAndDeposit(address(this), 0, amount);
@@ -100,7 +112,7 @@ contract ReliquaryTest is ERC721Holder, Test {
     function testDepositExisting(uint256 amountA, uint256 amountB) public {
         amountA = bound(amountA, 1, type(uint256).max / 2);
         amountB = bound(amountB, 1, type(uint256).max / 2);
-        vm.assume(amountA + amountB <= testToken.balanceOf(address(this)));
+        vm.assume(amountA + amountB <= IERC20(balancerPool).balanceOf(address(this)));
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, amountA);
         reliquary.deposit(amountB, relicId, address(0));
         assertEq(reliquary.getPositionForId(relicId).amount, amountA + amountB);
@@ -120,7 +132,7 @@ contract ReliquaryTest is ERC721Holder, Test {
     }
 
     function testWithdraw(uint256 amount) public {
-        amount = bound(amount, 1, testToken.balanceOf(address(this)));
+        amount = bound(amount, 1, IERC20(balancerPool).balanceOf(address(this)));
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, amount);
         vm.expectEmit(true, true, true, true);
         emit ReliquaryEvents.Withdraw(0, amount, address(this), relicId);
@@ -135,14 +147,22 @@ contract ReliquaryTest is ERC721Holder, Test {
     }
 
     function testHarvest() public {
-        testToken.transfer(address(1), 1.25 ether);
+        IERC20(balancerPool).transfer(address(1), 1.25 ether);
 
         vm.startPrank(address(1));
-        testToken.approve(address(reliquary), type(uint256).max);
+        IERC20(balancerPool).approve(address(reliquary), type(uint256).max);
         uint256 relicIdA = reliquary.createRelicAndDeposit(address(1), 0, 1 ether);
         skip(180 days);
         reliquary.withdraw(0.75 ether, relicIdA, address(0));
         reliquary.deposit(1 ether, relicIdA, address(0));
+
+        // Gauge claim
+        uint256 treasuryBalanceBefore = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertGt(IERC20(wmatic).balanceOf(treasury), treasuryBalanceBefore);
+        uint256 treasuryBalanceMid = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertEq(IERC20(wmatic).balanceOf(treasury), treasuryBalanceMid);
 
         vm.stopPrank();
         uint256 relicIdB = reliquary.createRelicAndDeposit(address(this), 0, 100 ether);
@@ -156,6 +176,103 @@ contract ReliquaryTest is ERC721Holder, Test {
         assertApproxEqAbs(oath.balanceOf(address(this)) / 1e18, 3110400, 1);
     }
 
+    function testDisableRehypothecation() public {
+        IERC20(balancerPool).transfer(address(1), 1.25 ether);
+
+        vm.startPrank(address(1));
+        IERC20(balancerPool).approve(address(reliquary), type(uint256).max);
+        uint256 relicIdA = reliquary.createRelicAndDeposit(address(1), 0, 1 ether);
+        skip(180 days);
+        reliquary.withdraw(0.75 ether, relicIdA, address(0));
+        reliquary.deposit(1 ether, relicIdA, address(0));
+        vm.stopPrank();
+
+        // Disable rehypothecation
+        uint256 treasuryBalanceBefore = IERC20(wmatic).balanceOf(treasury);
+        uint256 reliquaryBalanceBefore = IERC20(balancerPool).balanceOf(address(reliquary));
+        reliquary.disableRehypothecation(0, false);
+        assertEq(IERC20(wmatic).balanceOf(treasury), treasuryBalanceBefore);
+        assertGt(IERC20(balancerPool).balanceOf(address(reliquary)), reliquaryBalanceBefore);
+        uint256 treasuryBalanceMid = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertEq(IERC20(wmatic).balanceOf(treasury), treasuryBalanceMid);
+
+        uint256 relicIdB = reliquary.createRelicAndDeposit(address(this), 0, 100 ether);
+        skip(180 days);
+        reliquary.update(relicIdB, address(this));
+
+        vm.startPrank(address(1));
+        reliquary.update(relicIdA, address(this));
+        vm.stopPrank();
+
+        assertApproxEqAbs(oath.balanceOf(address(this)) / 1e18, 3110400, 1);
+    }
+
+    function testDisableRehypothecationAndClaim() public {
+        IERC20(balancerPool).transfer(address(1), 1.25 ether);
+
+        vm.startPrank(address(1));
+        IERC20(balancerPool).approve(address(reliquary), type(uint256).max);
+        uint256 relicIdA = reliquary.createRelicAndDeposit(address(1), 0, 1 ether);
+        skip(180 days);
+        reliquary.withdraw(0.75 ether, relicIdA, address(0));
+        reliquary.deposit(1 ether, relicIdA, address(0));
+        vm.stopPrank();
+
+        // Disable rehypothecation
+        uint256 treasuryBalanceBefore = IERC20(wmatic).balanceOf(treasury);
+        uint256 reliquaryBalanceBefore = IERC20(balancerPool).balanceOf(address(reliquary));
+        reliquary.disableRehypothecation(0, true);
+        assertGt(IERC20(wmatic).balanceOf(treasury), treasuryBalanceBefore);
+        assertGt(IERC20(balancerPool).balanceOf(address(reliquary)), reliquaryBalanceBefore);
+        uint256 treasuryBalanceMid = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertEq(IERC20(wmatic).balanceOf(treasury), treasuryBalanceMid);
+
+        uint256 relicIdB = reliquary.createRelicAndDeposit(address(this), 0, 100 ether);
+        skip(180 days);
+        reliquary.update(relicIdB, address(this));
+
+        vm.startPrank(address(1));
+        reliquary.update(relicIdA, address(this));
+        vm.stopPrank();
+
+        assertApproxEqAbs(oath.balanceOf(address(this)) / 1e18, 3110400, 1);
+    }
+
+    function testDisableRehypothecationAndClaim2() public {
+        IERC20(balancerPool).transfer(address(1), 1.25 ether);
+
+        vm.startPrank(address(1));
+        IERC20(balancerPool).approve(address(reliquary), type(uint256).max);
+        uint256 relicIdA = reliquary.createRelicAndDeposit(address(1), 0, 1 ether);
+        skip(180 days);
+        reliquary.withdraw(0.75 ether, relicIdA, address(0));
+        reliquary.deposit(1 ether, relicIdA, address(0));
+        vm.stopPrank();
+
+        uint256 relicIdB = reliquary.createRelicAndDeposit(address(this), 0, 100 ether);
+        skip(180 days);
+        reliquary.update(relicIdB, address(this));
+
+        vm.startPrank(address(1));
+        reliquary.update(relicIdA, address(this));
+        vm.stopPrank();
+
+        assertApproxEqAbs(oath.balanceOf(address(this)) / 1e18, 3110400, 1);
+
+        // Disable rehypothecation
+        uint256 treasuryBalanceBefore = IERC20(wmatic).balanceOf(treasury);
+        uint256 reliquaryBalanceBefore = IERC20(balancerPool).balanceOf(address(reliquary));
+        reliquary.claimRehypothecation(0);
+        reliquary.disableRehypothecation(0, false);
+        assertGt(IERC20(wmatic).balanceOf(treasury), treasuryBalanceBefore);
+        assertGt(IERC20(balancerPool).balanceOf(address(reliquary)), reliquaryBalanceBefore);
+        uint256 treasuryBalanceMid = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertEq(IERC20(wmatic).balanceOf(treasury), treasuryBalanceMid);
+    }
+
     function testRevertOnHarvestUnauthorized() public {
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, 1);
         vm.expectRevert(IReliquary.Reliquary__NOT_APPROVED_OR_OWNER.selector);
@@ -164,7 +281,7 @@ contract ReliquaryTest is ERC721Holder, Test {
     }
 
     function testEmergencyWithdraw(uint256 amount) public {
-        amount = bound(amount, 1, testToken.balanceOf(address(this)));
+        amount = bound(amount, 1, IERC20(balancerPool).balanceOf(address(this)));
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, amount);
         vm.expectEmit(true, true, true, true);
         emit ReliquaryEvents.EmergencyWithdraw(0, amount, address(this), relicId);
@@ -179,7 +296,7 @@ contract ReliquaryTest is ERC721Holder, Test {
     }
 
     function testSplit(uint256 depositAmount, uint256 splitAmount) public {
-        depositAmount = bound(depositAmount, 1, testToken.balanceOf(address(this)));
+        depositAmount = bound(depositAmount, 1, IERC20(balancerPool).balanceOf(address(this)));
         splitAmount = bound(splitAmount, 1, depositAmount);
 
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, depositAmount);
@@ -191,9 +308,12 @@ contract ReliquaryTest is ERC721Holder, Test {
     }
 
     function testRevertOnSplitUnderflow(uint256 depositAmount, uint256 splitAmount) public {
-        depositAmount = bound(depositAmount, 1, testToken.balanceOf(address(this)) / 2 - 1);
+        depositAmount =
+            bound(depositAmount, 1, IERC20(balancerPool).balanceOf(address(this)) / 2 - 1);
         splitAmount = bound(
-            splitAmount, depositAmount + 1, testToken.balanceOf(address(this)) - depositAmount
+            splitAmount,
+            depositAmount + 1,
+            IERC20(balancerPool).balanceOf(address(this)) - depositAmount
         );
 
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, depositAmount);
@@ -204,9 +324,9 @@ contract ReliquaryTest is ERC721Holder, Test {
     function testShift(uint256 depositAmount1, uint256 depositAmount2, uint256 shiftAmount)
         public
     {
-        depositAmount1 = bound(depositAmount1, 1, testToken.balanceOf(address(this)) - 1);
+        depositAmount1 = bound(depositAmount1, 1, IERC20(balancerPool).balanceOf(address(this)) - 1);
         depositAmount2 =
-            bound(depositAmount2, 1, testToken.balanceOf(address(this)) - depositAmount1);
+            bound(depositAmount2, 1, IERC20(balancerPool).balanceOf(address(this)) - depositAmount1);
         shiftAmount = bound(shiftAmount, 1, depositAmount1);
 
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, depositAmount1);
@@ -218,9 +338,12 @@ contract ReliquaryTest is ERC721Holder, Test {
     }
 
     function testRevertOnShiftUnderflow(uint256 depositAmount, uint256 shiftAmount) public {
-        depositAmount = bound(depositAmount, 1, testToken.balanceOf(address(this)) / 2 - 1);
+        depositAmount =
+            bound(depositAmount, 1, IERC20(balancerPool).balanceOf(address(this)) / 2 - 1);
         shiftAmount = bound(
-            shiftAmount, depositAmount + 1, testToken.balanceOf(address(this)) - depositAmount
+            shiftAmount,
+            depositAmount + 1,
+            IERC20(balancerPool).balanceOf(address(this)) - depositAmount
         );
 
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, depositAmount);
@@ -230,9 +353,9 @@ contract ReliquaryTest is ERC721Holder, Test {
     }
 
     function testMerge(uint256 depositAmount1, uint256 depositAmount2) public {
-        depositAmount1 = bound(depositAmount1, 1, testToken.balanceOf(address(this)) - 1);
+        depositAmount1 = bound(depositAmount1, 1, IERC20(balancerPool).balanceOf(address(this)) - 1);
         depositAmount2 =
-            bound(depositAmount2, 1, testToken.balanceOf(address(this)) - depositAmount1);
+            bound(depositAmount2, 1, IERC20(balancerPool).balanceOf(address(this)) - depositAmount1);
 
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, depositAmount1);
         uint256 newRelicId = reliquary.createRelicAndDeposit(address(this), 0, depositAmount2);
@@ -242,22 +365,26 @@ contract ReliquaryTest is ERC721Holder, Test {
     }
 
     function testCompareDepositAndMerge(uint256 amount1, uint256 amount2, uint256 time) public {
-        amount1 = bound(amount1, 1, testToken.balanceOf(address(this)) - 1);
-        amount2 = bound(amount2, 1, testToken.balanceOf(address(this)) - amount1);
-        time = bound(time, 1, 356 days * 1); // 100 years
-
-        console.log(amount1);
-        console.log(amount2);
-        console.log(time);
+        amount1 = bound(amount1, 1e4, IERC20(balancerPool).balanceOf(address(this)) - 1);
+        amount2 = bound(amount2, 1, IERC20(balancerPool).balanceOf(address(this)) - amount1);
+        time = bound(time, 1 weeks, 20 weeks);
 
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, amount1);
         skip(time);
         reliquary.deposit(amount2, relicId, address(0));
         uint256 maturity1 = block.timestamp - reliquary.getPositionForId(relicId).entry;
 
-        //reset maturity
+        // Reset maturity
         reliquary.withdraw(amount1 + amount2, relicId, address(0));
         reliquary.deposit(amount1, relicId, address(0));
+
+        // Gauge claim
+        uint256 treasuryBalanceBefore = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertGt(IERC20(wmatic).balanceOf(treasury), treasuryBalanceBefore);
+        uint256 treasuryBalanceMid = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertEq(IERC20(wmatic).balanceOf(treasury), treasuryBalanceMid);
 
         skip(time);
         uint256 newRelicId = reliquary.createRelicAndDeposit(address(this), 0, amount2);
@@ -272,6 +399,15 @@ contract ReliquaryTest is ERC721Holder, Test {
         uint256 depositAmount2 = 50 ether;
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, depositAmount1);
         skip(2 days);
+
+        // Gauge claim
+        uint256 treasuryBalanceBefore = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertGt(IERC20(wmatic).balanceOf(treasury), treasuryBalanceBefore);
+        uint256 treasuryBalanceMid = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertEq(IERC20(wmatic).balanceOf(treasury), treasuryBalanceMid);
+
         reliquary.update(relicId, address(this));
         reliquary.split(relicId, 50 ether, address(this));
         uint256 newRelicId = reliquary.createRelicAndDeposit(address(this), 0, depositAmount2);
@@ -349,10 +485,18 @@ contract ReliquaryTest is ERC721Holder, Test {
 
         assertEq(reliquary.getPositionForId(relic1).level, 0);
         assertGt(reliquary.getPositionForId(relic2).level, 0);
+
+        // Gauge claim
+        uint256 treasuryBalanceBefore = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertGt(IERC20(wmatic).balanceOf(treasury), treasuryBalanceBefore);
+        uint256 treasuryBalanceMid = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertEq(IERC20(wmatic).balanceOf(treasury), treasuryBalanceMid);
     }
 
     function testRelic1RewardDistribution1(uint256 seedTime) public {
-        uint256 time = bound(seedTime, 1, 365 days);
+        uint256 time = bound(seedTime, 1 days, 365 days);
 
         uint256 relic1 = 1;
 
@@ -372,10 +516,18 @@ contract ReliquaryTest is ERC721Holder, Test {
 
         // test relic 1 linearity
         assertGt(oath.balanceOf(address(22)), oath.balanceOf(address(11)));
+
+        // Gauge claim
+        uint256 treasuryBalanceBefore = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertGt(IERC20(wmatic).balanceOf(treasury), treasuryBalanceBefore);
+        uint256 treasuryBalanceMid = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertEq(IERC20(wmatic).balanceOf(treasury), treasuryBalanceMid);
     }
 
     function testRelic1RewardDistribution2(uint256 seedTime) public {
-        uint256 time = bound(seedTime, 1, 365 days);
+        uint256 time = bound(seedTime, 1 days, 365 days);
 
         uint256 relic1 = 1;
 
@@ -396,6 +548,14 @@ contract ReliquaryTest is ERC721Holder, Test {
         assertApproxEqRel(oath.balanceOf(address(11)), balance11 * 2, 1e2); // 0
 
         skip(time);
+
+        // Gauge claim
+        uint256 treasuryBalanceBefore = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertGt(IERC20(wmatic).balanceOf(treasury), treasuryBalanceBefore);
+        uint256 treasuryBalanceMid = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertEq(IERC20(wmatic).balanceOf(treasury), treasuryBalanceMid);
 
         reliquary.update(relic1, address(11));
 
@@ -418,6 +578,14 @@ contract ReliquaryTest is ERC721Holder, Test {
         skip(time);
 
         reliquary.update(relic2, address(22));
+
+        // Gauge claim
+        uint256 treasuryBalanceBefore = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertGt(IERC20(wmatic).balanceOf(treasury), treasuryBalanceBefore);
+        uint256 treasuryBalanceMid = IERC20(wmatic).balanceOf(treasury);
+        reliquary.claimRehypothecation(0);
+        assertEq(IERC20(wmatic).balanceOf(treasury), treasuryBalanceMid);
 
         // test relic 1 linearity
         assertGt(oath.balanceOf(address(22)), balance22 * 2); // 0
