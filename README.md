@@ -1,3 +1,5 @@
+# Reliquary aka Cod3x Stake
+
 Reliquary is a smart contract system that is designed to improve outcomes of incentive distribution by giving users and developers fine grained control over their investments and rewards. It accomplishes this with the following features:
 
 1. Emits tokens based on the maturity of a user's investment, separated in tranches.
