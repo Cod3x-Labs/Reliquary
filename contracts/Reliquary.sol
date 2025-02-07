@@ -95,6 +95,7 @@ contract Reliquary is IReliquary, Multicall, ERC721, AccessControlEnumerable, Re
      */
     function setLockEndTime(uint256 _lockEndTime) external onlyRole(DEFAULT_ADMIN_ROLE) {
         lockEndTime = _lockEndTime;
+        emit ReliquaryEvents.LogSetLockEndTime(_lockEndTime);
     }
 
     /**

@@ -23,6 +23,7 @@ library ReliquaryEvents {
         uint8 indexed pid, uint256 allocPoint, address indexed rewarder, address nftDescriptor
     );
     event LogSetEmissionRate(uint256 indexed emissionRate);
+    event LogSetLockEndTime(uint256 indexed lockEndTime);
     event Split(uint256 indexed fromId, uint256 indexed toId, uint256 amount);
     event Shift(uint256 indexed fromId, uint256 indexed toId, uint256 amount);
     event Merge(uint256 indexed fromId, uint256 indexed toId, uint256 amount);
