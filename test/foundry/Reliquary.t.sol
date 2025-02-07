@@ -346,7 +346,7 @@ contract ReliquaryTest is ERC721Holder, Test {
         vm.expectRevert(IReliquary.Reliquary__LOCKED.selector);
         reliquary.withdraw(1000, id, address(this));
         vm.expectRevert(IReliquary.Reliquary__LOCKED.selector);
-        reliquary.emergencyWithdraw(1);
+        reliquary.emergencyWithdraw(id);
         
         // Skip to time before lock end but after some rewards accumulate
         vm.warp(startTime + 50 days);
