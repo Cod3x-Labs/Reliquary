@@ -51,6 +51,7 @@
     "multisig": "0x0000000000000000000000000000000000000000",
     "rewardToken": "0x21Ada0D2aC28C3A5Fa3cD2eE30882dA8812279B6",
     "emissionRate": "10000000000",
+    "lockEndTime": "1754521200"
 
     "pools": [
         {
