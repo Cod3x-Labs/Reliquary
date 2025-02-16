@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Script.sol";
+import {PoolInfo} from "contracts/interfaces/IReliquary.sol";
 import {Reliquary} from "contracts/Reliquary.sol";
 import {ICurves, LinearCurve} from "contracts/curves/LinearCurve.sol";
 import {LinearPlateauCurve} from "contracts/curves/LinearPlateauCurve.sol";
@@ -48,6 +49,8 @@ contract Deploy is Script {
 
     string config;
     address multisig;
+    address operator;
+    address emissionRateRole;
     address bootstrapAdd;
     Reliquary reliquary;
     uint256 poolCount;
@@ -61,8 +64,10 @@ contract Deploy is Script {
         config = vm.readFile("scripts/deploy_conf.json");
         string memory name = config.readString(".name");
         string memory symbol = config.readString(".symbol");
-        multisig = config.readAddress(".multisig");
-        bootstrapAdd = config.readAddress(".multisig"); //! bootstrapAdd set to multisig.
+        multisig = config.readAddress(".multisigRole");
+        operator = config.readAddress(".operatorRole");
+        emissionRateRole = config.readAddress(".emissionRateRole");
+        bootstrapAdd = config.readAddress(".multisigRole"); //! bootstrapAdd set to multisig.
         rewardToken = config.readAddress(".rewardToken");
         uint256 emissionRate = config.readUint(".emissionRate");
         Pool[] memory pools = abi.decode(config.parseRaw(".pools"), (Pool[]));
@@ -106,11 +111,15 @@ contract Deploy is Script {
             );
         }
 
+        _createChildRewarders();
+
         if (multisig != address(0)) {
             _renounceRoles();
         }
 
         vm.stopBroadcast();
+
+        _asserts();
     }
 
     function _deployRewarders() internal {
@@ -126,13 +135,18 @@ contract Deploy is Script {
             parentRewarders[i] = newParent;
             parentForPoolId[params.poolId] = newParent;
         }
+    }
+
+    function _createChildRewarders() internal {
+        Pool[] memory pools = abi.decode(config.parseRaw(".pools"), (Pool[]));
+        poolCount = pools.length;
 
         ChildRewarderParams[] memory children =
             abi.decode(config.parseRaw(".childRewarders"), (ChildRewarderParams[]));
-        for (uint256 i; i < children.length; ++i) {
-            ChildRewarderParams memory child = children[i];
-            ParentRollingRewarder parent = ParentRollingRewarder(parentRewarders[child.parentIndex]);
-            parent.createChild(child.rewarderToken);
+
+        for (uint256 i; i < poolCount; ++i) {
+            ParentRollingRewarder parent = ParentRollingRewarder(parentForPoolId[i]);
+            parent.createChild(children[i].rewarderToken);
         }
     }
 
@@ -168,17 +182,56 @@ contract Deploy is Script {
 
     function _renounceRoles() internal {
         bytes32 defaultAdminRole = reliquary.DEFAULT_ADMIN_ROLE();
+
         reliquary.grantRole(defaultAdminRole, multisig);
         reliquary.grantRole(OPERATOR, multisig);
+        reliquary.grantRole(OPERATOR, operator);
         reliquary.grantRole(EMISSION_RATE, multisig);
+        reliquary.grantRole(EMISSION_RATE, emissionRateRole);
         reliquary.renounceRole(OPERATOR, tx.origin);
+        reliquary.renounceRole(EMISSION_RATE, tx.origin);
         reliquary.renounceRole(defaultAdminRole, tx.origin);
+
         if (multisig != address(0)) {
             for (uint256 i; i < poolCount; ++i) {
                 if (address(parentForPoolId[i]) != address(0)) {
                     parentForPoolId[i].transferOwnership(multisig);
                 }
             }
+        }
+    }
+
+    function _asserts() internal view {
+        assert(reliquary.hasRole(OPERATOR, multisig));
+        assert(reliquary.hasRole(EMISSION_RATE, multisig));
+        assert(reliquary.hasRole(reliquary.DEFAULT_ADMIN_ROLE(), multisig));
+        assert(reliquary.hasRole(OPERATOR, operator));
+        assert(reliquary.hasRole(EMISSION_RATE, emissionRateRole));
+
+        assert(!reliquary.hasRole(OPERATOR, tx.origin));
+        assert(!reliquary.hasRole(EMISSION_RATE, tx.origin));
+        assert(!reliquary.hasRole(reliquary.DEFAULT_ADMIN_ROLE(), tx.origin));
+
+        assert(!reliquary.hasRole(OPERATOR, msg.sender));
+        assert(!reliquary.hasRole(EMISSION_RATE, msg.sender));
+        assert(!reliquary.hasRole(reliquary.DEFAULT_ADMIN_ROLE(), msg.sender));
+
+        assert(reliquary.rewardToken() == rewardToken);
+        assert(reliquary.emissionRate() == config.readUint(".emissionRate"));
+        // assert(reliquary.totalAllocPoint() == config.readUint(".totalAllocPoint"));
+
+        Pool[] memory poolInfos = abi.decode(config.parseRaw(".pools"), (Pool[]));
+        for (uint256 i; i < poolInfos.length; ++i) {
+            PoolInfo memory reliquaryPoolInfos = reliquary.getPoolInfo(uint8(i));
+            Pool memory poolInfo = poolInfos[i];
+            assert(keccak256(abi.encodePacked(reliquaryPoolInfos.name)) == keccak256(abi.encodePacked(poolInfo.name)));
+            assert(reliquaryPoolInfos.rewarder == address(parentForPoolId[i]));
+            assert(reliquaryPoolInfos.poolToken == poolInfo.poolToken);
+            assert(reliquaryPoolInfos.allowPartialWithdrawals == poolInfo.allowPartialWithdrawals);
+            assert(reliquaryPoolInfos.allocPoint == poolInfo.allocPoint);
+
+            assert(LinearCurve(address(reliquaryPoolInfos.curve)).slope == linearCurves[poolInfo.curveIndex].slope);
+            assert(LinearCurve(address(reliquaryPoolInfos.curve)).minMultiplier == linearCurves[poolInfo.curveIndex].minMultiplier);
         }
     }
 }
