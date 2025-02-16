@@ -129,7 +129,7 @@
             "allocPoint": 1000,
             "allowPartialWithdrawals": true,
             "curveIndex": 0,
-            "curveType": "linearCurve",
+            "curveType": "linearPlateauCurve",
             "name": "CDX Staking Pool",
             "poolToken": "0xC0D3700000c0e32716863323bFd936b54a1633d1",
             "tokenType": "normal"
@@ -150,12 +150,13 @@
     ],
 
     "linearCurves": [
-        {
-            "slope": 0,
-            "minMultiplier": 100
-        }
     ],
 
     "linearPlateauCurves": [
+        {
+            "minMultiplier": 15768000,
+            "plateauLevel": 15768000,
+            "slope": 1
+        }
     ]
 }
