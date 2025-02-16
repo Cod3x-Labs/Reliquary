@@ -347,7 +347,7 @@ contract ReliquaryTest is ERC721Holder, Test {
         reliquary.withdraw(1000, id, address(this));
         vm.expectRevert(IReliquary.Reliquary__LOCKED.selector);
         reliquary.emergencyWithdraw(id);
-        
+
         // Skip to time before lock end but after some rewards accumulate
         vm.warp(startTime + 50 days);
         uint256 oldOathBalance = oath.balanceOf(address(this));
@@ -356,7 +356,7 @@ contract ReliquaryTest is ERC721Holder, Test {
         console.log("change in oath balance after update: ", deltaBalance);
         assertGt(deltaBalance, 0);
         reliquary.deposit(1001, id, address(this));
-        
+
         // Skip to time after lock end
         vm.warp(startTime + 120 days + 1);
         uint256 oldMockBalance = testToken.balanceOf(address(this));

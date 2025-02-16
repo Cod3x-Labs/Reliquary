@@ -46,11 +46,13 @@ contract Deploy is Script {
 
     bytes32 constant OPERATOR = keccak256("OPERATOR");
     bytes32 constant EMISSION_RATE = keccak256("EMISSION_RATE");
+    bytes32 constant GUARDIAN = keccak256("GUARDIAN");
 
     string config;
     address multisig;
     address operator;
     address emissionRateRole;
+    address guardianRole;
     address bootstrapAdd;
     Reliquary reliquary;
     uint256 poolCount;
@@ -69,6 +71,7 @@ contract Deploy is Script {
         emissionRateRole = config.readAddress(".emissionRateRole");
         bootstrapAdd = config.readAddress(".multisigRole"); //! bootstrapAdd set to multisig.
         rewardToken = config.readAddress(".rewardToken");
+        guardianRole = config.readAddress(".guardianRole");
         uint256 emissionRate = config.readUint(".emissionRate");
         uint256 lockEndTime = config.readUint(".lockEndTime");
         Pool[] memory pools = abi.decode(config.parseRaw(".pools"), (Pool[]));
@@ -189,8 +192,11 @@ contract Deploy is Script {
         reliquary.grantRole(OPERATOR, operator);
         reliquary.grantRole(EMISSION_RATE, multisig);
         reliquary.grantRole(EMISSION_RATE, emissionRateRole);
+        reliquary.grantRole(GUARDIAN, guardianRole);
+
         reliquary.renounceRole(OPERATOR, tx.origin);
         reliquary.renounceRole(EMISSION_RATE, tx.origin);
+        reliquary.renounceRole(GUARDIAN, tx.origin);
         reliquary.renounceRole(defaultAdminRole, tx.origin);
 
         if (multisig != address(0)) {
@@ -212,14 +218,15 @@ contract Deploy is Script {
         assert(!reliquary.hasRole(OPERATOR, tx.origin));
         assert(!reliquary.hasRole(EMISSION_RATE, tx.origin));
         assert(!reliquary.hasRole(reliquary.DEFAULT_ADMIN_ROLE(), tx.origin));
+        assert(!reliquary.hasRole(GUARDIAN, tx.origin));
 
         assert(!reliquary.hasRole(OPERATOR, msg.sender));
         assert(!reliquary.hasRole(EMISSION_RATE, msg.sender));
         assert(!reliquary.hasRole(reliquary.DEFAULT_ADMIN_ROLE(), msg.sender));
+        assert(!reliquary.hasRole(GUARDIAN, msg.sender));
 
         assert(reliquary.rewardToken() == rewardToken);
         assert(reliquary.emissionRate() == config.readUint(".emissionRate"));
-        // assert(reliquary.totalAllocPoint() == config.readUint(".totalAllocPoint"));
 
         Pool[] memory poolInfos = abi.decode(config.parseRaw(".pools"), (Pool[]));
         for (uint256 i; i < poolInfos.length; ++i) {
@@ -233,15 +240,6 @@ contract Deploy is Script {
             assert(reliquaryPoolInfos.poolToken == poolInfo.poolToken);
             assert(reliquaryPoolInfos.allowPartialWithdrawals == poolInfo.allowPartialWithdrawals);
             assert(reliquaryPoolInfos.allocPoint == poolInfo.allocPoint);
-
-            // assert(
-            //     LinearCurve(address(reliquaryPoolInfos.curve)).slope
-            //         == linearCurves[poolInfo.curveIndex].slope
-            // );
-            // assert(
-            //     LinearCurve(address(reliquaryPoolInfos.curve)).minMultiplier
-            //         == linearCurves[poolInfo.curveIndex].minMultiplier
-            // );
         }
     }
 }
