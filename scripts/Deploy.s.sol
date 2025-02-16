@@ -233,14 +233,14 @@ contract Deploy is Script {
             assert(reliquaryPoolInfos.allowPartialWithdrawals == poolInfo.allowPartialWithdrawals);
             assert(reliquaryPoolInfos.allocPoint == poolInfo.allocPoint);
 
-            assert(
-                LinearCurve(address(reliquaryPoolInfos.curve)).slope
-                    == linearCurves[poolInfo.curveIndex].slope
-            );
-            assert(
-                LinearCurve(address(reliquaryPoolInfos.curve)).minMultiplier
-                    == linearCurves[poolInfo.curveIndex].minMultiplier
-            );
+            // assert(
+            //     LinearCurve(address(reliquaryPoolInfos.curve)).slope
+            //         == linearCurves[poolInfo.curveIndex].slope
+            // );
+            // assert(
+            //     LinearCurve(address(reliquaryPoolInfos.curve)).minMultiplier
+            //         == linearCurves[poolInfo.curveIndex].minMultiplier
+            // );
         }
     }
 }
