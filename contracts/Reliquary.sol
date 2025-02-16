@@ -8,7 +8,9 @@ import "./interfaces/INFTDescriptor.sol";
 import "./libraries/ReliquaryLogic.sol";
 import "./libraries/ReliquaryEvents.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
+import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
+import {ERC721Enumerable} from
+    "openzeppelin-contracts/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "openzeppelin-contracts/contracts/access/extensions/AccessControlEnumerable.sol";
 import "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import "openzeppelin-contracts/contracts/utils/math/Math.sol";
@@ -33,6 +35,7 @@ contract Reliquary is
     IReliquary,
     Multicall,
     ERC721,
+    ERC721Enumerable,
     AccessControlEnumerable,
     ReentrancyGuard,
     Pausable
@@ -771,11 +774,26 @@ contract Reliquary is
             .constructTokenURI(_relicId);
     }
 
+    function _update(address to, uint256 tokenId, address auth)
+        internal
+        override(ERC721, ERC721Enumerable)
+        returns (address)
+    {
+        return super._update(to, tokenId, auth);
+    }
+
+    function _increaseBalance(address account, uint128 value)
+        internal
+        override(ERC721, ERC721Enumerable)
+    {
+        super._increaseBalance(account, value);
+    }
+
     /// @dev Implement ERC165 to return which interfaces this contract conforms to
     function supportsInterface(bytes4 _interfaceId)
         public
         view
-        override(IERC165, ERC721, AccessControlEnumerable)
+        override(IERC165, ERC721, ERC721Enumerable, AccessControlEnumerable)
         returns (bool)
     {
         return _interfaceId == type(IReliquary).interfaceId || super.supportsInterface(_interfaceId);
