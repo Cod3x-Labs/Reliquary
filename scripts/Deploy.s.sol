@@ -224,14 +224,23 @@ contract Deploy is Script {
         for (uint256 i; i < poolInfos.length; ++i) {
             PoolInfo memory reliquaryPoolInfos = reliquary.getPoolInfo(uint8(i));
             Pool memory poolInfo = poolInfos[i];
-            assert(keccak256(abi.encodePacked(reliquaryPoolInfos.name)) == keccak256(abi.encodePacked(poolInfo.name)));
+            assert(
+                keccak256(abi.encodePacked(reliquaryPoolInfos.name))
+                    == keccak256(abi.encodePacked(poolInfo.name))
+            );
             assert(reliquaryPoolInfos.rewarder == address(parentForPoolId[i]));
             assert(reliquaryPoolInfos.poolToken == poolInfo.poolToken);
             assert(reliquaryPoolInfos.allowPartialWithdrawals == poolInfo.allowPartialWithdrawals);
             assert(reliquaryPoolInfos.allocPoint == poolInfo.allocPoint);
 
-            assert(LinearCurve(address(reliquaryPoolInfos.curve)).slope == linearCurves[poolInfo.curveIndex].slope);
-            assert(LinearCurve(address(reliquaryPoolInfos.curve)).minMultiplier == linearCurves[poolInfo.curveIndex].minMultiplier);
+            assert(
+                LinearCurve(address(reliquaryPoolInfos.curve)).slope
+                    == linearCurves[poolInfo.curveIndex].slope
+            );
+            assert(
+                LinearCurve(address(reliquaryPoolInfos.curve)).minMultiplier
+                    == linearCurves[poolInfo.curveIndex].minMultiplier
+            );
         }
     }
 }
