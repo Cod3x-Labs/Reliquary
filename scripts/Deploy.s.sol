@@ -70,6 +70,7 @@ contract Deploy is Script {
         bootstrapAdd = config.readAddress(".multisigRole"); //! bootstrapAdd set to multisig.
         rewardToken = config.readAddress(".rewardToken");
         uint256 emissionRate = config.readUint(".emissionRate");
+        uint256 lockEndTime = config.readUint(".lockEndTime");
         Pool[] memory pools = abi.decode(config.parseRaw(".pools"), (Pool[]));
         poolCount = pools.length;
 
@@ -77,7 +78,7 @@ contract Deploy is Script {
 
         _deployCurves();
 
-        reliquary = new Reliquary(rewardToken, emissionRate, name, symbol);
+        reliquary = new Reliquary(rewardToken, emissionRate, name, symbol, lockEndTime);
 
         _deployRewarders();
 

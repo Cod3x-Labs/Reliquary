@@ -48,7 +48,7 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
     function setUp() public {
         oath = new ERC20Mock(18);
 
-        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC");
+        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateau);
         linearCurve = new LinearCurve(slope, minMultiplier);
 

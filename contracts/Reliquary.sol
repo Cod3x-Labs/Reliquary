@@ -54,6 +54,8 @@ contract Reliquary is
     uint256 public emissionRate;
     /// @dev Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint;
+    /// @dev The end timestamp for the global withdrawal lock.
+    uint256 public lockEndTime;
     /// @dev Nonce to use for new relicId.
     uint256 private idNonce;
 
@@ -71,10 +73,12 @@ contract Reliquary is
         address _rewardToken,
         uint256 _emissionRate,
         string memory _name,
-        string memory _symbol
+        string memory _symbol,
+        uint256 _lockEndTime
     ) ERC721(_name, _symbol) {
         rewardToken = _rewardToken;
         emissionRate = _emissionRate;
+        lockEndTime = _lockEndTime;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
@@ -93,6 +97,15 @@ contract Reliquary is
      */
     function unpause() public onlyRole(OPERATOR) {
         _unpause();
+    }
+
+    /**
+     * @notice Set the lock end time. If it is in the past the lock is disabled.
+     * @param _lockEndTime The new lock end time. 
+     */
+    function setLockEndTime(uint256 _lockEndTime) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        lockEndTime = _lockEndTime;
+        emit ReliquaryEvents.LogSetLockEndTime(_lockEndTime);
     }
 
     /**
@@ -302,6 +315,7 @@ contract Reliquary is
         external
         nonReentrant
         whenNotPaused
+        whenNotLocked
     {
         _requireApprovedOrOwner(_relicId);
         _withdraw(_amount, _relicId, _harvestTo);
@@ -311,7 +325,7 @@ contract Reliquary is
      * @notice Withdraw without caring about rewards. EMERGENCY ONLY.
      * @param _relicId NFT ID of the position to emergency withdraw from and burn.
      */
-    function emergencyWithdraw(uint256 _relicId) external nonReentrant {
+    function emergencyWithdraw(uint256 _relicId) external nonReentrant whenNotLocked {
         address to_ = ownerOf(_relicId);
         if (to_ != msg.sender) revert Reliquary__NOT_OWNER();
 
@@ -817,5 +831,11 @@ contract Reliquary is
         if (!_isAuthorized(_ownerOf(_relicId), msg.sender, _relicId)) {
             revert Reliquary__NOT_APPROVED_OR_OWNER();
         }
+    }
+
+    // -------------- modifiers --------------
+    modifier whenNotLocked() {
+        if (lockEndTime > block.timestamp) revert Reliquary__LOCKED();
+        _;
     }
 }
