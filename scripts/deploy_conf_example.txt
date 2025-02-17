@@ -110,9 +110,6 @@
     ]
 }
 
-
-
-
 {
     "name": "Cod3x Staking",
     "symbol": "CDX-S-POS",
@@ -120,8 +117,9 @@
     "weth": "0x4200000000000000000000000000000000000006",
 
     "multisigRole": "0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b",
-    "operatorRole": "0x0D1d0f89cb988678B37FD5b5c6C1A5bBdc55f8ba",
+    "operatorRole": "0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b",
     "emissionRateRole": "0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b",
+    "guardianRole" : "0x0D1d0f89cb988678B37FD5b5c6C1A5bBdc55f8ba",
     "rewardToken": "0xb22a793a81ff5b6ad37f40d5fe1e0ac4184d52f3",
     "emissionRate": "0",
     "lockEndTime": "1755494271",
