@@ -120,9 +120,7 @@ contract DepositHelperReaperVault is Ownable {
         }
     }
 
-    function _withdraw(uint256 _amount, uint256 _relicId, bool _harvest, bool _giveEther)
-        internal
-    {
+    function _withdraw(uint256 _amount, uint256 _relicId, bool _harvest, bool _giveEther) internal {
         _requireApprovedOrOwner(_relicId);
 
         PositionInfo memory position_ = reliquary.getPositionForId(_relicId);

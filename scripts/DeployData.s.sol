@@ -8,7 +8,8 @@ contract DeployReliquaryUIDataProvider is Script {
     function run() external {
         vm.startBroadcast();
 
-        ReliquaryUIDataProvider dataProvider = new ReliquaryUIDataProvider(0x1Cf49e880fc64C0B98BeE0Ecac89aA79D29335EA);
+        ReliquaryUIDataProvider dataProvider =
+            new ReliquaryUIDataProvider(0x1Cf49e880fc64C0B98BeE0Ecac89aA79D29335EA);
 
         vm.stopBroadcast();
 

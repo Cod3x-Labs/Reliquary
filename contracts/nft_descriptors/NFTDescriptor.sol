@@ -27,12 +27,7 @@ contract NFTDescriptor is INFTDescriptor {
     }
 
     /// @notice Generate tokenURI as a base64 encoding from live on-chain values.
-    function constructTokenURI(uint256 relicId)
-        external
-        view
-        override
-        returns (string memory uri)
-    {
+    function constructTokenURI(uint256 relicId) external view override returns (string memory uri) {
         IReliquary _reliquary = IReliquary(reliquary);
         PositionInfo memory position = _reliquary.getPositionForId(relicId);
         PoolInfo memory pool = _reliquary.getPoolInfo(position.poolId);

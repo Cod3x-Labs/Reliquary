@@ -347,20 +347,17 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
             (, uint256[] memory rewardAmounts1_) = parentRewarder.pendingTokens(relics[0]);
             assertApproxEqRel(
                 rewardAmounts1_[i],
-                (
-                    ((initialFunding[i] / 3) * (initialDistributionPeriod / 2))
-                        + ((initialFunding[i] / 6) * (initialDistributionPeriod / 2))
-                ) / initialDistributionPeriod,
+                (((initialFunding[i] / 3) * (initialDistributionPeriod / 2))
+                        + ((initialFunding[i] / 6) * (initialDistributionPeriod / 2)))
+                    / initialDistributionPeriod,
                 0.001e18
             ); // 0,001%
 
             (, uint256[] memory rewardAmounts2_) = parentRewarder.pendingTokens(u0SlittedRelic);
             assertApproxEqRel(
                 rewardAmounts2_[i],
-                (
-                    (initialFunding[i] / 6) * (initialDistributionPeriod / 2)
-                        / initialDistributionPeriod
-                ),
+                ((initialFunding[i] / 6) * (initialDistributionPeriod / 2)
+                        / initialDistributionPeriod),
                 0.001e18
             ); // 0,001%
         }
@@ -431,10 +428,9 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
             (, uint256[] memory rewardAmounts1_) = parentRewarder.pendingTokens(relics[0]);
             assertApproxEqRel(
                 rewardAmounts1_[i],
-                (
-                    ((initialFunding[i] / 3) * (initialDistributionPeriod / 2))
-                        + ((initialFunding[i] / 6) * (initialDistributionPeriod / 2))
-                ) / initialDistributionPeriod,
+                (((initialFunding[i] / 3) * (initialDistributionPeriod / 2))
+                        + ((initialFunding[i] / 6) * (initialDistributionPeriod / 2)))
+                    / initialDistributionPeriod,
                 0.005e18
             ); // 0,005%
 
@@ -477,23 +473,22 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
             assertEq(rewardAmounts1_[i], 0);
             assertApproxEqRel(
                 rewardTokens[i].balanceOf(users[0]),
-                (
-                    ((initialFunding[i] / 3) * (initialDistributionPeriod / 2))
-                        + ((initialFunding[i] / 6) * (initialDistributionPeriod / 2))
-                ) / initialDistributionPeriod,
+                (((initialFunding[i] / 3) * (initialDistributionPeriod / 2))
+                        + ((initialFunding[i] / 6) * (initialDistributionPeriod / 2)))
+                    / initialDistributionPeriod,
                 0.005e18
             ); // 0,005%
 
             (, uint256[] memory rewardAmounts2_) = parentRewarder.pendingTokens(relics[1]);
             assertEq(rewardAmounts2_[i], 0); // 0,001%
-                // assertApproxEqRel(
-                //     rewardTokens[i].balanceOf(users[1]),
-                //     (
-                //         ((initialFunding[i] / 3) * (initialDistributionPeriod / 2))
-                //             + ((initialFunding[i]  * 2/ 3) * (initialDistributionPeriod / 2))
-                //     ) / initialDistributionPeriod,
-                //     0.005e18
-                // ); // 0,005%
+            // assertApproxEqRel(
+            //     rewardTokens[i].balanceOf(users[1]),
+            //     (
+            //         ((initialFunding[i] / 3) * (initialDistributionPeriod / 2))
+            //             + ((initialFunding[i]  * 2/ 3) * (initialDistributionPeriod / 2))
+            //     ) / initialDistributionPeriod,
+            //     0.005e18
+            // ); // 0,005%
         }
     }
 

@@ -29,7 +29,8 @@ contract ReliquaryTest is ERC721Holder, Test {
     uint256 slope = 100; // Increase of multiplier every second
     uint256 minMultiplier = 365 days * 100; // Arbitrary (but should be coherent with slope)
     uint256 plateau = 10 days;
-    int256[] public coeff = [int256(100e18), int256(1e18), int256(5e15), int256(-1e13), int256(5e9)];
+    int256[] public coeff =
+        [int256(100e18), int256(1e18), int256(5e15), int256(-1e13), int256(5e9)];
 
     function setUp() public {
         int256[] memory coeffDynamic = new int256[](5);
@@ -211,9 +212,7 @@ contract ReliquaryTest is ERC721Holder, Test {
         reliquary.split(relicId, splitAmount, address(this));
     }
 
-    function testShift(uint256 depositAmount1, uint256 depositAmount2, uint256 shiftAmount)
-        public
-    {
+    function testShift(uint256 depositAmount1, uint256 depositAmount2, uint256 shiftAmount) public {
         depositAmount1 = bound(depositAmount1, 1, testToken.balanceOf(address(this)) - 1);
         depositAmount2 =
             bound(depositAmount2, 1, testToken.balanceOf(address(this)) - depositAmount1);

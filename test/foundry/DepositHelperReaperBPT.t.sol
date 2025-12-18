@@ -127,8 +127,9 @@ contract DepositHelperReaperBPTTest is ERC721Holder, Test {
         IReZap.Step[] memory stepsIn = reZap.findStepsIn(address(wftm), bpt, amount);
         (uint256 relicId, uint256 shares) =
             helper.createRelicAndDeposit{value: depositFTM ? amount : 0}(stepsIn, 0, amount);
-        IReZap.Step[] memory stepsOut =
-            reZap.findStepsOut(address(wftm), bpt, (shares * vault.balance()) / vault.totalSupply());
+        IReZap.Step[] memory stepsOut = reZap.findStepsOut(
+            address(wftm), bpt, (shares * vault.balance()) / vault.totalSupply()
+        );
         helper.withdraw(stepsOut, shares, relicId, harvest, withdrawFTM);
 
         uint256 difference;
@@ -154,8 +155,9 @@ contract DepositHelperReaperBPTTest is ERC721Holder, Test {
     function testRevertOnWithdrawUnauthorized(bool harvest, bool isETH) public {
         IReZap.Step[] memory stepsIn = reZap.findStepsIn(address(wftm), bpt, 1 ether);
         (uint256 relicId, uint256 shares) = helper.createRelicAndDeposit(stepsIn, 0, 1 ether);
-        IReZap.Step[] memory stepsOut =
-            reZap.findStepsOut(address(wftm), bpt, (shares * vault.balance()) / vault.totalSupply());
+        IReZap.Step[] memory stepsOut = reZap.findStepsOut(
+            address(wftm), bpt, (shares * vault.balance()) / vault.totalSupply()
+        );
         vm.expectRevert(bytes("not approved or owner"));
         vm.prank(address(1));
         helper.withdraw(stepsOut, shares, relicId, harvest, isETH);
