@@ -49,13 +49,16 @@ contract Reliquary is
     bytes32 private constant GUARDIAN = keccak256("GUARDIAN");
     bytes32 private constant EMISSION_RATE = keccak256("EMISSION_RATE");
 
+    /// @dev Minimum amount to deposit
+    uint256 public minStakingAmount;
+
     /// @dev Address of the reward token contract.
     address public immutable rewardToken;
     /// @dev value of emission rate.
     uint256 public emissionRate;
     /// @dev Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint;
-    /// @dev The end timestamp for the global withdrawal lock.
+    /// @dev The end timestamp for the cooldown lock. uint40 can store 34,865 years
     uint256 public lockEndTime;
     /// @dev Nonce to use for new relicId.
     uint256 private idNonce;
@@ -75,11 +78,13 @@ contract Reliquary is
         uint256 _emissionRate,
         string memory _name,
         string memory _symbol,
-        uint256 _lockEndTime
+        uint256 _lockEndTime,
+        uint256 _minStakingAmount
     ) ERC721(_name, _symbol) {
         rewardToken = _rewardToken;
         emissionRate = _emissionRate;
         lockEndTime = _lockEndTime;
+        minStakingAmount = _minStakingAmount;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
@@ -98,6 +103,15 @@ contract Reliquary is
      */
     function unpause() public onlyRole(OPERATOR) {
         _unpause();
+    }
+
+    /**
+     * @notice Set the lock end time. If it is in the past the lock is disabled.
+     * @param _minStakingAmount Min staking amount.
+     */
+    function setMinStakingAmount(uint256 _minStakingAmount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        minStakingAmount = _minStakingAmount;
+        emit ReliquaryEvents.LogSetMinStakingAmount(_minStakingAmount);
     }
 
     /**
@@ -316,7 +330,6 @@ contract Reliquary is
         external
         nonReentrant
         whenNotPaused
-        whenNotLocked
     {
         _requireApprovedOrOwner(_relicId);
         _withdraw(_amount, _relicId, _harvestTo);
@@ -326,7 +339,7 @@ contract Reliquary is
      * @notice Withdraw without caring about rewards. EMERGENCY ONLY.
      * @param _relicId NFT ID of the position to emergency withdraw from and burn.
      */
-    function emergencyWithdraw(uint256 _relicId) external nonReentrant whenNotLocked {
+    function emergencyWithdraw(uint256 _relicId) external nonReentrant {
         address to_ = ownerOf(_relicId);
         if (to_ != msg.sender) revert Reliquary__NOT_OWNER();
 
@@ -845,8 +858,7 @@ contract Reliquary is
     }
 
     // -------------- modifiers --------------
-    modifier whenNotLocked() {
-        if (lockEndTime > block.timestamp) revert Reliquary__LOCKED();
+    modifier whenNotLocked(uint256 _relicId) {
         _;
     }
 }

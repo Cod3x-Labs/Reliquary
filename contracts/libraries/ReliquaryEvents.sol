@@ -24,6 +24,7 @@ library ReliquaryEvents {
     );
     event LogSetEmissionRate(uint256 indexed emissionRate);
     event LogSetLockEndTime(uint256 indexed lockEndTime);
+    event LogSetMinStakingAmount(uint256 indexed minStakingAmount);
     event Split(uint256 indexed fromId, uint256 indexed toId, uint256 amount);
     event Shift(uint256 indexed fromId, uint256 indexed toId, uint256 amount);
     event Merge(uint256 indexed fromId, uint256 indexed toId, uint256 amount);

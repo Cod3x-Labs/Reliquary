@@ -74,6 +74,7 @@ contract Deploy is Script {
         guardianRole = config.readAddress(".guardianRole");
         uint256 emissionRate = config.readUint(".emissionRate");
         uint256 lockEndTime = config.readUint(".lockEndTime");
+        uint256 minStakingAmount = config.readUint(".minStakingAmount");
         Pool[] memory pools = abi.decode(config.parseRaw(".pools"), (Pool[]));
         poolCount = pools.length;
 
@@ -81,7 +82,9 @@ contract Deploy is Script {
 
         _deployCurves();
 
-        reliquary = new Reliquary(rewardToken, emissionRate, name, symbol, lockEndTime);
+        reliquary = new Reliquary(
+            rewardToken, emissionRate, name, symbol, uint40(lockEndTime), minStakingAmount
+        );
 
         _deployRewarders();
 

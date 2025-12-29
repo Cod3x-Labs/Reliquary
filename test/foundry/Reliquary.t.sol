@@ -39,7 +39,7 @@ contract ReliquaryTest is ERC721Holder, Test {
         }
 
         oath = new ERC20Mock(18);
-        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
+        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0, 0);
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateau);
         linearCurve = new LinearCurve(slope, minMultiplier);
         polynomialPlateauCurve = new PolynomialPlateauCurve(coeffDynamic, 850);
@@ -140,8 +140,8 @@ contract ReliquaryTest is ERC721Holder, Test {
 
     function testRevertOnWithdrawUnauthorized() public {
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, 1);
+        vm.startPrank(address(1));
         vm.expectRevert(IReliquary.Reliquary__NOT_APPROVED_OR_OWNER.selector);
-        vm.prank(address(1));
         reliquary.withdraw(1, relicId, address(0));
     }
 
@@ -185,8 +185,9 @@ contract ReliquaryTest is ERC721Holder, Test {
     function testRevertOnEmergencyWithdrawNotOwner() public {
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, 1);
         vm.expectRevert(IReliquary.Reliquary__NOT_OWNER.selector);
-        vm.prank(address(1));
+        vm.startPrank(address(1));
         reliquary.emergencyWithdraw(relicId);
+        vm.stopPrank();
     }
 
     function testSplit(uint256 depositAmount, uint256 splitAmount) public {
@@ -368,5 +369,16 @@ contract ReliquaryTest is ERC721Holder, Test {
         deltaBalance = testToken.balanceOf(address(this)) - oldMockBalance;
         console.log("change in mock balance after emergency withdraw: ", deltaBalance);
         assertEq(deltaBalance, 1000);
+    }
+
+    function testMinStakingDeposit(uint256 amount) public {
+        amount = bound(amount, 1, 6000e18);
+        uint256 id = reliquary.createRelicAndDeposit(address(this), 0, 1000);
+        reliquary.setMinStakingAmount(amount);
+        if (amount > 1) {
+            vm.expectRevert(IReliquary.Reliquary__WRONG_INPUT.selector);
+            reliquary.deposit(amount - 1, id, address(this));
+        }
+        reliquary.deposit(amount, id, address(this));
     }
 }
