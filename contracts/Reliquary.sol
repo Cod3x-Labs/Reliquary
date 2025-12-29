@@ -58,8 +58,6 @@ contract Reliquary is
     uint256 public emissionRate;
     /// @dev Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint;
-    /// @dev The end timestamp for the cooldown lock. uint40 can store 34,865 years
-    uint256 public lockEndTime;
     /// @dev Nonce to use for new relicId.
     uint256 private idNonce;
 
@@ -78,12 +76,10 @@ contract Reliquary is
         uint256 _emissionRate,
         string memory _name,
         string memory _symbol,
-        uint256 _lockEndTime,
         uint256 _minStakingAmount
     ) ERC721(_name, _symbol) {
         rewardToken = _rewardToken;
         emissionRate = _emissionRate;
-        lockEndTime = _lockEndTime;
         minStakingAmount = _minStakingAmount;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
@@ -106,21 +102,12 @@ contract Reliquary is
     }
 
     /**
-     * @notice Set the lock end time. If it is in the past the lock is disabled.
+     * @notice Set the minimum staking amount.
      * @param _minStakingAmount Min staking amount.
      */
     function setMinStakingAmount(uint256 _minStakingAmount) external onlyRole(DEFAULT_ADMIN_ROLE) {
         minStakingAmount = _minStakingAmount;
         emit ReliquaryEvents.LogSetMinStakingAmount(_minStakingAmount);
-    }
-
-    /**
-     * @notice Set the lock end time. If it is in the past the lock is disabled.
-     * @param _lockEndTime The new lock end time.
-     */
-    function setLockEndTime(uint256 _lockEndTime) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        lockEndTime = _lockEndTime;
-        emit ReliquaryEvents.LogSetLockEndTime(_lockEndTime);
     }
 
     /**
@@ -412,7 +399,7 @@ contract Reliquary is
         whenNotPaused
         returns (uint256 newId_)
     {
-        if (_amount == 0) revert Reliquary__ZERO_INPUT();
+        if (_amount == 0) revert Reliquary__WRONG_INPUT();
         _requireApprovedOrOwner(_fromId);
 
         PositionInfo storage fromPosition = positionForId[_fromId];
@@ -476,7 +463,7 @@ contract Reliquary is
         nonReentrant
         whenNotPaused
     {
-        if (_amount == 0) revert Reliquary__ZERO_INPUT();
+        if (_amount == 0) revert Reliquary__WRONG_INPUT();
         if (_fromId == _toId) revert Reliquary__DUPLICATE_RELIC_IDS();
         _requireApprovedOrOwner(_fromId);
         _requireApprovedOrOwner(_toId);
@@ -662,7 +649,7 @@ contract Reliquary is
      * @param _relicId The NFT ID of the position on which the deposit is to be made.
      */
     function _deposit(uint256 _amount, uint256 _relicId, address _harvestTo) internal {
-        if (_amount == 0) revert Reliquary__ZERO_INPUT();
+        if (_amount == 0 || _amount < minStakingAmount) revert Reliquary__WRONG_INPUT();
 
         uint8 poolId_ = _updatePosition(_amount, _relicId, Kind.DEPOSIT, _harvestTo);
 
@@ -677,7 +664,7 @@ contract Reliquary is
      * @param _relicId The NFT ID of the position on which the withdraw is to be made.
      */
     function _withdraw(uint256 _amount, uint256 _relicId, address _harvestTo) internal {
-        if (_amount == 0) revert Reliquary__ZERO_INPUT();
+        if (_amount == 0) revert Reliquary__WRONG_INPUT();
 
         uint8 poolId_ = _updatePosition(_amount, _relicId, Kind.WITHDRAW, _harvestTo);
 
@@ -855,10 +842,5 @@ contract Reliquary is
         if (!_isAuthorized(_ownerOf(_relicId), msg.sender, _relicId)) {
             revert Reliquary__NOT_APPROVED_OR_OWNER();
         }
-    }
-
-    // -------------- modifiers --------------
-    modifier whenNotLocked(uint256 _relicId) {
-        _;
     }
 }

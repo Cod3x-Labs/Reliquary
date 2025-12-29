@@ -82,9 +82,7 @@ contract Deploy is Script {
 
         _deployCurves();
 
-        reliquary = new Reliquary(
-            rewardToken, emissionRate, name, symbol, uint40(lockEndTime), minStakingAmount
-        );
+        reliquary = new Reliquary(rewardToken, emissionRate, name, symbol, minStakingAmount);
 
         _deployRewarders();
 

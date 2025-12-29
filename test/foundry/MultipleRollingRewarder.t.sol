@@ -48,7 +48,7 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
     function setUp() public {
         oath = new ERC20Mock(18);
 
-        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0, 0);
+        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateau);
         linearCurve = new LinearCurve(slope, minMultiplier);
 
@@ -234,7 +234,6 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
         // withdraw
         for (uint256 u = 0; u < users.length; u++) {
             vm.startPrank(users[u]);
-            reliquary.initiateWithdrawal(relics[u]);
             reliquary.withdraw(initialInvest, relics[u], address(0));
             reliquary.update(relics[u], users[u]);
         }

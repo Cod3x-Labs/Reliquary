@@ -28,7 +28,7 @@ contract DepositHelperERC4626Test is ERC721Holder, Test {
 
     function setUp() public {
         oath = new ERC20Mock(18);
-        reliquary = new Reliquary(address(oath), 1e17, "Reliquary Deposit", "RELIC", 0, 0);
+        reliquary = new Reliquary(address(oath), 1e17, "Reliquary Deposit", "RELIC", 0);
 
         weth = new WETH();
         vault = new ERC4626Mock(address(weth));

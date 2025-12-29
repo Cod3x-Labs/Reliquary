@@ -71,7 +71,7 @@ interface IReliquaryData is IERC721 {
     error Reliquary__TOKEN_NOT_COMPATIBLE();
     error Reliquary__ZERO_TOTAL_ALLOC_POINT();
     error Reliquary__NON_EXISTENT_POOL();
-    error Reliquary__ZERO_INPUT();
+    error Reliquary__WRONG_INPUT();
     error Reliquary__NOT_OWNER();
     error Reliquary__DUPLICATE_RELIC_IDS();
     error Reliquary__RELICS_NOT_OF_SAME_POOL();
