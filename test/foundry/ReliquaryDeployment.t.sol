@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.24;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
@@ -77,7 +77,8 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
 
         mainRewardToken = address(testToken);
 
-        reliquary = new Reliquary(mainRewardToken, emissionRate, name, symbol, 0);
+        reliquary = new Reliquary();
+        reliquary.initialize(mainRewardToken, emissionRate, "Reliquary Deposit", "RELIC", 0);
 
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateau);
         linearCurve = new LinearCurve(slope, minMultiplier);
@@ -492,6 +493,9 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
                 idx / 1 days,
                 childRewarders[0].pendingToken(multipleUsers.mainUserRelic)
             );
+            multipleUsers.mainUserPrevBalance += childRewarders[0].pendingToken(
+                multipleUsers.mainUserRelic
+            );
             console2.log("Main user multiplier: ", multiplier);
             console2.log(
                 "Main user function for level %s : %s",
@@ -509,6 +513,9 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
                 idx / 1 days,
                 childRewarders[0].pendingToken(multipleUsers.user1Relic)
             );
+            multipleUsers.user1PrevBalance += childRewarders[0].pendingToken(
+                multipleUsers.user1Relic
+            );
             console2.log("User1 multiplier: ", multiplier);
             console2.log(
                 "User1 function for level %s : %s",
@@ -525,6 +532,9 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
                 "User2 Day %s. Pending USDC: %6e",
                 idx / 1 days,
                 childRewarders[0].pendingToken(multipleUsers.user2Relic)
+            );
+            multipleUsers.user2PrevBalance += childRewarders[0].pendingToken(
+                multipleUsers.user2Relic
             );
             console2.log(
                 "User2 Day %s. Pending USDC: %6e",
@@ -553,6 +563,9 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
                 idx / 1 days,
                 childRewarders[0].pendingToken(multipleUsers.user3Relic)
             );
+            multipleUsers.user3PrevBalance += childRewarders[0].pendingToken(
+                multipleUsers.user3Relic
+            );
             console2.log("User3 multiplier: ", multiplier);
             console2.log(
                 "User3 function for level %s : %s",
@@ -577,8 +590,36 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
 
             // console2.log("2. Pending rewards: ", reliquary.pendingReward(relicId));
         }
+        vm.prank(multipleUsers.mainUser);
+        reliquary.withdraw(amount, multipleUsers.mainUserRelic, multipleUsers.mainUser);
+        vm.prank(multipleUsers.user1);
+        reliquary.withdraw(amount, multipleUsers.user1Relic, multipleUsers.user1);
+        vm.prank(multipleUsers.user2);
+        reliquary.withdraw(amount, multipleUsers.user2Relic, multipleUsers.user2);
+        vm.prank(multipleUsers.user3);
+        reliquary.withdraw(amount, multipleUsers.user3Relic, multipleUsers.user3);
 
-        assert(false);
+        assertEq(
+            IERC20(USDC).balanceOf(multipleUsers.mainUser),
+            multipleUsers.mainUserPrevBalance,
+            "Wrong withdrawal balance for main user"
+        );
+        assertEq(
+            IERC20(USDC).balanceOf(multipleUsers.user1),
+            multipleUsers.user1PrevBalance,
+            "Wrong withdrawal balance for user1"
+        );
+        assertEq(
+            IERC20(USDC).balanceOf(multipleUsers.user2),
+            multipleUsers.user2PrevBalance,
+            "Wrong withdrawal balance for user2"
+        );
+        assertEq(
+            IERC20(USDC).balanceOf(multipleUsers.user3),
+            multipleUsers.user3PrevBalance,
+            "Wrong withdrawal balance for user3"
+        );
+        // assert(false);
     }
 
     // symulacja kilkukrotnych dystrybucji po 14/28 dni

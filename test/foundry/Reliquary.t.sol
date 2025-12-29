@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.24;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
@@ -39,7 +39,8 @@ contract ReliquaryTest is ERC721Holder, Test {
         }
 
         oath = new ERC20Mock(18);
-        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
+        reliquary = new Reliquary();
+        reliquary.initialize(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateau);
         linearCurve = new LinearCurve(slope, minMultiplier);
         polynomialPlateauCurve = new PolynomialPlateauCurve(coeffDynamic, 850);

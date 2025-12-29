@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.24;
 
 import "openzeppelin-contracts/contracts/access/Ownable.sol";
 import "openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
@@ -15,7 +15,6 @@ interface IWeth is IERC20 {
 /// @title Helper contract that allows depositing to and withdrawing from Reliquary pools of an ERC4626 vault in a
 /// single transaction using the vault's underlying asset.
 contract DepositHelperERC4626 is Ownable {
-    using Address for address payable;
     using SafeERC20 for IERC20;
 
     IReliquary public immutable reliquary;
@@ -77,7 +76,8 @@ contract DepositHelperERC4626 is Ownable {
     /// @notice Owner may send tokens out of this contract since none should be held here. Do not send tokens manually.
     function rescueFunds(address _token, address _to, uint256 _amount) external onlyOwner {
         if (_token == address(0)) {
-            payable(_to).sendValue(_amount);
+            (bool success,) = payable(_to).call{value: _amount}("");
+            require(success, "Transfer failed");
         } else {
             IERC20(_token).safeTransfer(_to, _amount);
         }
@@ -129,7 +129,8 @@ contract DepositHelperERC4626 is Ownable {
             uint256 amountETH = _vault.maxWithdraw(address(this));
             _vault.withdraw(amountETH, address(this), address(this));
             weth.withdraw(amountETH);
-            payable(msg.sender).sendValue(amountETH);
+            (bool success,) = payable(msg.sender).call{value: amountETH}("");
+            require(success, "Transfer failed");
         } else {
             _vault.withdraw(_vault.maxWithdraw(address(this)), msg.sender, address(this));
         }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.24;
 
 import "./interfaces/IReliquary.sol";
 import "./interfaces/IParentRollingRewarder.sol";
@@ -8,16 +8,36 @@ import "./interfaces/INFTDescriptor.sol";
 import "./libraries/ReliquaryLogic.sol";
 import "./libraries/ReliquaryEvents.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ERC721} from "openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
-import {
-    ERC721Enumerable
-} from "openzeppelin-contracts/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import "openzeppelin-contracts/contracts/access/extensions/AccessControlEnumerable.sol";
-import "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import "openzeppelin-contracts/contracts/utils/math/Math.sol";
-import "openzeppelin-contracts/contracts/utils/Multicall.sol";
-import "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
-import "openzeppelin-contracts/contracts/utils/Pausable.sol";
+import "lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+import "lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
+
+import {
+    ERC721Upgradeable
+} from "lib/openzeppelin-contracts-upgradeable/contracts/token/ERC721/ERC721Upgradeable.sol";
+import {
+    Initializable
+} from "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
+import {
+    UUPSUpgradeable
+} from "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {
+    ERC721EnumerableUpgradeable
+} from "lib/openzeppelin-contracts-upgradeable/contracts/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+
+import {
+    AccessControlEnumerableUpgradeable
+} from "lib/openzeppelin-contracts-upgradeable/contracts/access/extensions/AccessControlEnumerableUpgradeable.sol";
+import {
+    MulticallUpgradeable
+} from "lib/openzeppelin-contracts-upgradeable/contracts/utils/MulticallUpgradeable.sol";
+
+import {
+    ERC721PausableUpgradeable
+} from "lib/openzeppelin-contracts-upgradeable/contracts/token/ERC721/extensions/ERC721PausableUpgradeable.sol";
+import {
+    Initializable
+} from "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
 
 /**
  * @title Reliquary
@@ -33,14 +53,17 @@ import "openzeppelin-contracts/contracts/utils/Pausable.sol";
  * trade their Relics without withdrawing liquidity or affecting the position's maturity.
  */
 contract Reliquary is
-    IReliquary,
-    Multicall,
-    ERC721,
-    ERC721Enumerable,
-    AccessControlEnumerable,
+    Initializable,
+    ERC721Upgradeable,
+    ERC721EnumerableUpgradeable,
+    ERC721PausableUpgradeable,
+    AccessControlEnumerableUpgradeable,
+    UUPSUpgradeable,
     ReentrancyGuard,
-    Pausable
+    IReliquary
 {
+    // MulticallUpgradeable,
+
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
 
@@ -53,7 +76,7 @@ contract Reliquary is
     uint256 public minStakingAmount;
 
     /// @dev Address of the reward token contract.
-    address public immutable rewardToken;
+    address public rewardToken;
     /// @dev value of emission rate.
     uint256 public emissionRate;
     /// @dev Total allocation points. Must be the sum of all allocation points in all pools.
@@ -71,20 +94,38 @@ contract Reliquary is
      * @param _rewardToken The reward token contract address.
      * @param _emissionRate The contract address for the EmissionRate, which will return the emission rate.
      */
-    constructor(
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        // _disableInitializers();
+    }
+
+    function initialize(
         address _rewardToken,
         uint256 _emissionRate,
         string memory _name,
         string memory _symbol,
         uint256 _minStakingAmount
-    ) ERC721(_name, _symbol) {
+    ) public initializer {
+        __ERC721_init(_name, _symbol);
+        __ERC721Enumerable_init();
+        __ERC721Pausable_init();
+        __AccessControl_init();
         rewardToken = _rewardToken;
         emissionRate = _emissionRate;
         minStakingAmount = _minStakingAmount;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        // _grantRole(GUARDIAN, msg.sender);
+        // _grantRole(OPERATOR, msg.sender);
     }
 
     // -------------- admin functions --------------
+    function _authorizeUpgrade(address newImplementation)
+        internal
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {}
+
     /**
      * @notice Pause all functions except `emergencyWithdraw()`.
      * @dev Restricted to the GUARDIAN role.
@@ -801,7 +842,7 @@ contract Reliquary is
 
     function _update(address to, uint256 tokenId, address auth)
         internal
-        override(ERC721, ERC721Enumerable)
+        override(ERC721Upgradeable, ERC721EnumerableUpgradeable, ERC721PausableUpgradeable)
         returns (address)
     {
         return super._update(to, tokenId, auth);
@@ -809,7 +850,7 @@ contract Reliquary is
 
     function _increaseBalance(address account, uint128 value)
         internal
-        override(ERC721, ERC721Enumerable)
+        override(ERC721Upgradeable, ERC721EnumerableUpgradeable)
     {
         super._increaseBalance(account, value);
     }
@@ -818,7 +859,12 @@ contract Reliquary is
     function supportsInterface(bytes4 _interfaceId)
         public
         view
-        override(IERC165, ERC721, ERC721Enumerable, AccessControlEnumerable)
+        override(
+            IERC165,
+            ERC721Upgradeable,
+            ERC721EnumerableUpgradeable,
+            AccessControlEnumerableUpgradeable
+        )
         returns (bool)
     {
         return _interfaceId == type(IReliquary).interfaceId || super.supportsInterface(_interfaceId);

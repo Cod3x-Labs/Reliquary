@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.24;
 
 import "forge-std/Test.sol";
 import "openzeppelin-contracts/contracts/token/ERC721/utils/ERC721Holder.sol";
@@ -7,6 +7,9 @@ import "contracts/helpers/DepositHelperReaperVault.sol";
 import "contracts/nft_descriptors/NFTDescriptor.sol";
 import "contracts/Reliquary.sol";
 import "contracts/curves/LinearCurve.sol";
+import {
+    IAccessControlEnumerable
+} from "lib/openzeppelin-contracts/contracts/access/extensions/IAccessControlEnumerable.sol";
 
 interface IReaperVaultTest is IReaperVault {
     function balance() external view returns (uint256);
@@ -41,7 +44,8 @@ contract DepositHelperReaperVaultTest is ERC721Holder, Test {
         vm.createSelectFork("optimism", 111980000);
 
         oath = IERC20(0x00e1724885473B63bCE08a9f0a52F35b0979e35A);
-        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
+        reliquary = new Reliquary();
+        reliquary.initialize(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
         linearCurve = new LinearCurve(slope, minMultiplier);
 
         address nftDescriptor = address(new NFTDescriptor(address(reliquary)));
