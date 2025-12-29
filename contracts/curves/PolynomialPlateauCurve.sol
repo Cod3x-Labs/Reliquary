@@ -10,6 +10,9 @@ contract PolynomialPlateauCurve is ICurves {
     uint256 public immutable plateauLevel = type(uint256).max;
     uint256 public immutable plateauMultiplier;
 
+    /// @dev wrong name but to be consistent with ICurve -> it is rather initial value of polynomial -> y value for x=0
+    uint256 public immutable minMultiplier;
+
     /// @dev coefficients calculator helper: https://www.desmos.com/calculator/nic7esjsbe
     //  ex: [100e18, 1e18, 5e15, -1e13, 5e9]
     //!  We allow int coefficients, but developers must make sure that ∀x > 0 => getFunction(x) > 0
@@ -17,6 +20,7 @@ contract PolynomialPlateauCurve is ICurves {
         coefficients = _coefficients; // Coefficients must be expressed in WAD.
         plateauMultiplier = getFunction(_plateauLevel);
         plateauLevel = _plateauLevel;
+        minMultiplier = getFunction(0);
     }
 
     function getFunction(uint256 _level) public view returns (uint256) {
