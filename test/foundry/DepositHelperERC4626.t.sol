@@ -10,6 +10,7 @@ import "contracts/helpers/DepositHelperERC4626.sol";
 import "contracts/nft_descriptors/NFTDescriptor.sol";
 import "contracts/Reliquary.sol";
 import "contracts/curves/LinearCurve.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract DepositHelperERC4626Test is ERC721Holder, Test {
     DepositHelperERC4626 helper;
@@ -29,8 +30,16 @@ contract DepositHelperERC4626Test is ERC721Holder, Test {
     function setUp() public {
         oath = new ERC20Mock(18);
 
-        reliquary = new Reliquary();
-        reliquary.initialize(address(oath), 1e17, "Reliquary Deposit", "RELIC", 0);
+        Reliquary reliquaryImpl = new Reliquary();
+        bytes memory data = abi.encodeWithSelector(
+            Reliquary.initialize.selector,
+            address(oath), // _rewardToken
+            emissionRate, // _emissionRate
+            "Reliquary Deposit", // _name
+            "RELIC", // _symbol
+            uint256(0) // _minStakingAmount
+        );
+        reliquary = Reliquary(address(new ERC1967Proxy(address(reliquaryImpl), data)));
 
         weth = new WETH();
         vault = new ERC4626Mock(address(weth));

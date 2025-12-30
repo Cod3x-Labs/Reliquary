@@ -11,12 +11,12 @@ import {
     IERC165,
     MAX_SUPPLY_ALLOWED,
     ACC_REWARD_PRECISION
-} from "./interfaces/IReliquary.sol";
-import {IParentRollingRewarder} from "./interfaces/IParentRollingRewarder.sol";
-import {IRewarder} from "./interfaces/IRewarder.sol";
-import {INFTDescriptor} from "./interfaces/INFTDescriptor.sol";
-import {ReliquaryLogic} from "./libraries/ReliquaryLogic.sol";
-import "./libraries/ReliquaryEvents.sol";
+} from "../../../contracts/interfaces/IReliquary.sol";
+import {IParentRollingRewarder} from "../../../contracts/interfaces/IParentRollingRewarder.sol";
+import {IRewarder} from "../../../contracts/interfaces/IRewarder.sol";
+import {INFTDescriptor} from "../../../contracts/interfaces/INFTDescriptor.sol";
+import {ReliquaryLogic} from "../../../contracts/libraries/ReliquaryLogic.sol";
+import "../../../contracts/libraries/ReliquaryEvents.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import "lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
@@ -62,7 +62,7 @@ import {
  * increased composability without affecting accounting logic too much, and users can
  * trade their Relics without withdrawing liquidity or affecting the position's maturity.
  */
-contract Reliquary is
+contract ReliquaryV2 is
     Initializable,
     ERC721Upgradeable,
     ERC721EnumerableUpgradeable,
@@ -367,7 +367,6 @@ contract Reliquary is
         whenNotPaused
     {
         _requireApprovedOrOwner(_relicId);
-        _withdraw(_amount, _relicId, _harvestTo);
     }
 
     /**
@@ -680,18 +679,30 @@ contract Reliquary is
     }
 
     /**
-     * @dev Internal withdraw function that assumes `relicId` is valid.
-     * @param _amount Amount to withdraw.
-     * @param _relicId The NFT ID of the position on which the withdraw is to be made.
+     * @notice Withdraw without caring about rewards. EMERGENCY ONLY.
+     * @param _relicId NFT ID of the position to emergency withdraw from and burn.
      */
-    function _withdraw(uint256 _amount, uint256 _relicId, address _harvestTo) internal {
-        if (_amount == 0) revert Reliquary__WRONG_INPUT();
+    function emergencyWithdraw(uint256 _relicId) external nonReentrant {
+        address to_ = ownerOf(_relicId);
+        if (to_ != msg.sender) revert Reliquary__NOT_OWNER();
 
-        uint8 poolId_ = _updatePosition(_amount, _relicId, Kind.WITHDRAW, _harvestTo);
+        PositionInfo storage position = positionForId[_relicId];
 
-        IERC20(poolInfo[poolId_].poolToken).safeTransfer(msg.sender, _amount);
+        uint256 amount_ = uint256(position.amount);
+        uint8 poolId_ = position.poolId;
 
-        emit ReliquaryEvents.Withdraw(poolId_, _amount, msg.sender, _relicId);
+        PoolInfo storage pool = poolInfo[poolId_];
+
+        ReliquaryLogic._updatePool(pool, emissionRate, totalAllocPoint);
+
+        pool.totalLpSupplied -= amount_ * pool.curve.getFunction(uint256(position.level));
+
+        _burn(_relicId);
+        delete positionForId[_relicId];
+
+        IERC20(pool.poolToken).safeTransfer(to_, amount_);
+
+        // emit ReliquaryEvents.EmergencyWithdraw(poolId_, amount_, to_, _relicId);
     }
 
     /**

@@ -10,6 +10,7 @@ import {DepositHelperERC4626} from "contracts/helpers/DepositHelperERC4626.sol";
 import {NFTDescriptor} from "contracts/nft_descriptors/NFTDescriptor.sol";
 import {ParentRollingRewarder} from "contracts/rewarders/ParentRollingRewarder.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract Deploy is Script {
     using stdJson for string;
@@ -82,8 +83,16 @@ contract Deploy is Script {
 
         _deployCurves();
 
-        reliquary = new Reliquary();
-        reliquary.initialize(rewardToken, emissionRate, name, symbol, minStakingAmount);
+        Reliquary reliquaryImpl = new Reliquary();
+        bytes memory data = abi.encodeWithSelector(
+            Reliquary.initialize.selector,
+            address(rewardToken), // _rewardToken
+            emissionRate, // _emissionRate
+            name, // _name
+            symbol, // _symbol
+            minStakingAmount // _minStakingAmount
+        );
+        reliquary = Reliquary(address(new ERC1967Proxy(address(reliquaryImpl), data)));
 
         _deployRewarders();
 

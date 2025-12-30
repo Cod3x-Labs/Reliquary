@@ -11,6 +11,7 @@ import "contracts/rewarders/RollingRewarder.sol";
 import "contracts/rewarders/ParentRollingRewarder.sol";
 import "openzeppelin-contracts/contracts/token/ERC721/utils/ERC721Holder.sol";
 import "./mocks/ERC20Mock.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract MultipleRollingRewarder is ERC721Holder, Test {
     using Strings for address;
@@ -48,8 +49,16 @@ contract MultipleRollingRewarder is ERC721Holder, Test {
     function setUp() public {
         oath = new ERC20Mock(18);
 
-        reliquary = new Reliquary();
-        reliquary.initialize(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
+        Reliquary reliquaryImpl = new Reliquary();
+        bytes memory data = abi.encodeWithSelector(
+            Reliquary.initialize.selector,
+            address(oath), // _rewardToken
+            emissionRate, // _emissionRate
+            "Reliquary Deposit", // _name
+            "RELIC", // _symbol
+            uint256(0) // _minStakingAmount
+        );
+        reliquary = Reliquary(address(new ERC1967Proxy(address(reliquaryImpl), data)));
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateau);
         linearCurve = new LinearCurve(slope, minMultiplier);
 

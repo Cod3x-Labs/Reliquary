@@ -7,6 +7,7 @@ import "contracts/helpers/DepositHelperReaperBPT.sol";
 import "contracts/nft_descriptors/NFTDescriptor.sol";
 import "contracts/Reliquary.sol";
 import "contracts/curves/LinearCurve.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 interface IReaperVaultTest is IReaperVault {
     function balance() external view returns (uint256);
@@ -47,8 +48,16 @@ contract DepositHelperReaperBPTTest is ERC721Holder, Test {
         vm.createSelectFork("fantom", 53341452);
 
         oath = IERC20(0x21Ada0D2aC28C3A5Fa3cD2eE30882dA8812279B6);
-        reliquary = new Reliquary();
-        reliquary.initialize(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
+        Reliquary reliquaryImpl = new Reliquary();
+        bytes memory data = abi.encodeWithSelector(
+            Reliquary.initialize.selector,
+            address(oath), // _rewardToken
+            emissionRate, // _emissionRate
+            "Reliquary Deposit", // _name
+            "RELIC", // _symbol
+            uint256(0) // _minStakingAmount
+        );
+        reliquary = Reliquary(address(new ERC1967Proxy(address(reliquaryImpl), data)));
 
         linearCurve = new LinearCurve(slope, minMultiplier);
 

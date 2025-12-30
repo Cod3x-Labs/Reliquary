@@ -11,11 +11,15 @@ import "contracts/curves/LinearPlateauCurve.sol";
 import "openzeppelin-contracts/contracts/token/ERC721/utils/ERC721Holder.sol";
 import "contracts/curves/PolynomialPlateauCurve.sol";
 import "./mocks/ERC20Mock.sol";
+import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC1967Utils} from "lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {ReliquaryV2} from "test/foundry/mocks/ReliquaryV2.sol";
 
 contract ReliquaryTest is ERC721Holder, Test {
     using Strings for address;
     using Strings for uint256;
 
+    Reliquary reliquaryImpl;
     Reliquary reliquary;
     LinearCurve linearCurve;
     LinearPlateauCurve linearPlateauCurve;
@@ -39,8 +43,26 @@ contract ReliquaryTest is ERC721Holder, Test {
         }
 
         oath = new ERC20Mock(18);
-        reliquary = new Reliquary();
-        reliquary.initialize(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
+        // Encode initialization call with ALL parameters
+        bytes memory data = abi.encodeWithSelector(
+            Reliquary.initialize.selector,
+            address(oath), // _rewardToken
+            emissionRate, // _emissionRate
+            "Reliquary Deposit", // _name
+            "RELIC", // _symbol
+            uint256(0) // _minStakingAmount
+        );
+
+        // Deploy implementation
+        reliquaryImpl = new Reliquary();
+        // Deploy proxy with encoded initialization - initializer runs here
+        ERC1967Proxy proxy = new ERC1967Proxy(address(reliquaryImpl), data);
+        address implll =
+            address(uint160(uint256(vm.load(address(proxy), ERC1967Utils.IMPLEMENTATION_SLOT))));
+        console2.log("Implementation: ", implll);
+        // address implll = ERC1967Utils.getImplementation();
+        // Cast proxy to contract interface (NO second initialize call)
+        reliquary = Reliquary(address(proxy));
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateau);
         linearCurve = new LinearCurve(slope, minMultiplier);
         polynomialPlateauCurve = new PolynomialPlateauCurve(coeffDynamic, 850);
@@ -328,5 +350,38 @@ contract ReliquaryTest is ERC721Holder, Test {
             reliquary.deposit(amount - 1, id, address(this));
         }
         reliquary.deposit(amount, id, address(this));
+    }
+
+    function testMultipleInitalizationRevert() public {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        reliquary.initialize(address(oath), emissionRate - 1, "Reliquary Depositt", "REELIC", 1);
+    }
+
+    function testInitialized() public {
+        assertEq(reliquary.rewardToken(), address(oath));
+        assertEq(reliquary.emissionRate(), emissionRate);
+    }
+
+    function testImplementationAddressSet() public {
+        address implAddress = address(
+            uint160(uint256(vm.load(address(reliquary), ERC1967Utils.IMPLEMENTATION_SLOT)))
+        );
+        assertNotEq(implAddress, address(0));
+        assertTrue(implAddress != address(reliquary));
+    }
+
+    function testUpgradeToV2() public {
+        // Deploy V2 implementation
+        ReliquaryV2 implV2 = new ReliquaryV2();
+
+        // Upgrade proxy to V2
+        reliquary.upgradeToAndCall(address(implV2), "");
+
+        // Verify implementation address changed
+        address newImplAddress = address(
+            uint160(uint256(vm.load(address(reliquary), ERC1967Utils.IMPLEMENTATION_SLOT)))
+        );
+        assertEq(newImplAddress, address(implV2));
+        assertNotEq(newImplAddress, address(reliquary));
     }
 }
