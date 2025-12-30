@@ -115,8 +115,6 @@ interface IReliquaryData is IERC721 {
 
     function update(uint256 _relicId, address _harvestTo) external;
 
-    function emergencyWithdraw(uint256 _relicId) external;
-
     function poolLength() external view returns (uint256 pools_);
 
     function getPositionForId(uint256 _posId) external view returns (PositionInfo memory);

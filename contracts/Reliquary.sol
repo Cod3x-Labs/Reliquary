@@ -1,17 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import "./interfaces/IReliquary.sol";
-import "./interfaces/IParentRollingRewarder.sol";
-import "./interfaces/IRewarder.sol";
-import "./interfaces/INFTDescriptor.sol";
-import "./libraries/ReliquaryLogic.sol";
+import {
+    IReliquary,
+    PoolInfo,
+    PositionInfo,
+    ICurves,
+    Kind,
+    IERC721,
+    IERC165,
+    MAX_SUPPLY_ALLOWED,
+    ACC_REWARD_PRECISION
+} from "./interfaces/IReliquary.sol";
+import {IParentRollingRewarder} from "./interfaces/IParentRollingRewarder.sol";
+import {IRewarder} from "./interfaces/IRewarder.sol";
+import {INFTDescriptor} from "./interfaces/INFTDescriptor.sol";
+import {ReliquaryLogic} from "./libraries/ReliquaryLogic.sol";
 import "./libraries/ReliquaryEvents.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import "openzeppelin-contracts/contracts/utils/math/Math.sol";
-import "lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import "lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 
+import {ReentrancyGuard} from "lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 import {
     ERC721Upgradeable
 } from "lib/openzeppelin-contracts-upgradeable/contracts/token/ERC721/ERC721Upgradeable.sol";
@@ -60,10 +70,9 @@ contract Reliquary is
     AccessControlEnumerableUpgradeable,
     UUPSUpgradeable,
     ReentrancyGuard,
-    IReliquary
+    IReliquary,
+    MulticallUpgradeable
 {
-    // MulticallUpgradeable,
-
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
 
@@ -96,9 +105,7 @@ contract Reliquary is
      */
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        // _disableInitializers();
-    }
+    constructor() {}
 
     function initialize(
         address _rewardToken,
@@ -115,8 +122,6 @@ contract Reliquary is
         emissionRate = _emissionRate;
         minStakingAmount = _minStakingAmount;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        // _grantRole(GUARDIAN, msg.sender);
-        // _grantRole(OPERATOR, msg.sender);
     }
 
     // -------------- admin functions --------------
@@ -361,33 +366,6 @@ contract Reliquary is
     {
         _requireApprovedOrOwner(_relicId);
         _withdraw(_amount, _relicId, _harvestTo);
-    }
-
-    /**
-     * @notice Withdraw without caring about rewards. EMERGENCY ONLY.
-     * @param _relicId NFT ID of the position to emergency withdraw from and burn.
-     */
-    function emergencyWithdraw(uint256 _relicId) external nonReentrant {
-        address to_ = ownerOf(_relicId);
-        if (to_ != msg.sender) revert Reliquary__NOT_OWNER();
-
-        PositionInfo storage position = positionForId[_relicId];
-
-        uint256 amount_ = uint256(position.amount);
-        uint8 poolId_ = position.poolId;
-
-        PoolInfo storage pool = poolInfo[poolId_];
-
-        ReliquaryLogic._updatePool(pool, emissionRate, totalAllocPoint);
-
-        pool.totalLpSupplied -= amount_ * pool.curve.getFunction(uint256(position.level));
-
-        _burn(_relicId);
-        delete positionForId[_relicId];
-
-        IERC20(pool.poolToken).safeTransfer(to_, amount_);
-
-        emit ReliquaryEvents.EmergencyWithdraw(poolId_, amount_, to_, _relicId);
     }
 
     /**
@@ -793,13 +771,7 @@ contract Reliquary is
         pool_ = poolInfo[_poolId];
     }
 
-    /// @notice This function exists for gas optimization.
-    function getTotalLpSupplied(uint8 _poolId) external view returns (uint256 lp_) {
-        lp_ = poolInfo[_poolId].totalLpSupplied;
-    }
-
     /// @notice Returns the number of Reliquary pools.
-
     function poolLength() external view returns (uint256 pools_) {
         pools_ = poolInfo.length;
     }

@@ -8,9 +8,6 @@ library ReliquaryEvents {
     event Harvest(uint8 indexed pid, uint256 amount, address indexed to, uint256 indexed relicId);
     event Update(uint8 indexed pid, uint256 indexed relicId);
 
-    event EmergencyWithdraw(
-        uint8 indexed pid, uint256 amount, address indexed to, uint256 indexed relicId
-    );
     event LogPoolAddition(
         uint8 indexed pid,
         uint256 allocPoint,

@@ -175,22 +175,6 @@ contract ReliquaryTest is ERC721Holder, Test {
         reliquary.update(relicId, address(this));
     }
 
-    function testEmergencyWithdraw(uint256 amount) public {
-        amount = bound(amount, 1, testToken.balanceOf(address(this)));
-        uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, amount);
-        vm.expectEmit(true, true, true, true);
-        emit ReliquaryEvents.EmergencyWithdraw(0, amount, address(this), relicId);
-        reliquary.emergencyWithdraw(relicId);
-    }
-
-    function testRevertOnEmergencyWithdrawNotOwner() public {
-        uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, 1);
-        vm.expectRevert(IReliquary.Reliquary__NOT_OWNER.selector);
-        vm.startPrank(address(1));
-        reliquary.emergencyWithdraw(relicId);
-        vm.stopPrank();
-    }
-
     function testSplit(uint256 depositAmount, uint256 splitAmount) public {
         depositAmount = bound(depositAmount, 1, testToken.balanceOf(address(this)));
         splitAmount = bound(splitAmount, 1, depositAmount);

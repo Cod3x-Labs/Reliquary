@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import "contracts/interfaces/ICurves.sol";
-import "lib/openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import {ICurves} from "contracts/interfaces/ICurves.sol";
+import {IERC721, IERC165} from "lib/openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 
 /// @dev Level of precision rewards are calculated to.
 uint256 constant ACC_REWARD_PRECISION = 1e41;
@@ -115,15 +115,11 @@ interface IReliquary is IERC721 {
 
     function update(uint256 _relicId, address _harvestTo) external;
 
-    function emergencyWithdraw(uint256 _relicId) external;
-
     function poolLength() external view returns (uint256 pools_);
 
     function getPositionForId(uint256 _posId) external view returns (PositionInfo memory);
 
     function getPoolInfo(uint8 _poolId) external view returns (PoolInfo memory);
-
-    function getTotalLpSupplied(uint8 _poolId) external view returns (uint256 lp_);
 
     function isApprovedOrOwner(address, uint256) external view returns (bool);
 

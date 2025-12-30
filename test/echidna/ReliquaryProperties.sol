@@ -343,35 +343,6 @@ contract ReliquaryProperties {
         }
     }
 
-    /// random emergency withdraw
-    function randEmergencyWithdraw(uint256 rand) public {
-        uint256 relicId = relicIds[rand % relicIds.length];
-
-        PositionInfo memory pi = reliquary.getPositionForId(relicId);
-        address owner = reliquary.ownerOf(relicId);
-        ERC20 poolToken = ERC20(reliquary.getPoolInfo(pi.poolId).poolToken);
-        uint256 amount = pi.amount;
-
-        uint256 balanceReliquaryBefore = poolToken.balanceOf(address(reliquary));
-        uint256 balanceOwnerBefore = poolToken.balanceOf(owner);
-
-        rewardLostByEmergencyWithdraw += reliquary.pendingReward(relicId);
-
-        (bool success,) = User(owner)
-            .proxy(
-                address(reliquary),
-                abi.encodeWithSelector(reliquary.emergencyWithdraw.selector, relicId)
-            );
-        require(success);
-
-        isInit[relicId] = false;
-
-        // reliquary balance must have decreased by amount
-        assert(poolToken.balanceOf(address(reliquary)) == balanceReliquaryBefore - amount);
-        // user balance must have increased by amount
-        assert(poolToken.balanceOf(address(owner)) == balanceOwnerBefore + amount);
-    }
-
     /// harvest a position randomly
     function randHarvestPosition(uint256 rand) public {
         uint256 idToHasvest = rand % relicIds.length;
