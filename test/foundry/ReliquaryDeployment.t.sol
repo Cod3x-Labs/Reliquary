@@ -657,9 +657,9 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         testToken.mint(address(reliquary), 0); // 0 main reward from parent
         time = 3 days; //bound(time, 0, 365 days);
         childRewarders.push(RollingRewarder(parentRewarder.createChild(USDC)));
-        childRewarders[0].updateDistributionPeriod(400 days);
+        childRewarders[0].updateDistributionPeriod(14 days);
         ERC20Mock(USDC).approve(address(childRewarders[0]), type(uint256).max);
-        childRewarders[0].fund(1000e6);
+        childRewarders[0].fund(100e6);
         amount = 1000e18; //bound(amount, 1, IERC20(CDX).balanceOf(address(this)));
 
         vm.startPrank(multipleUsers.mainUser);
@@ -679,6 +679,10 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         //     multipleUsers.user3
         // );
         for (uint256 idx = 0; idx < 400 days; idx += time) {
+            if (idx % 14 days == 0 && idx != 0) {
+                childRewarders[0].updateDistributionPeriod(14 days);
+                childRewarders[0].fund((idx / 1 days) * 100e6);
+            }
             if (idx == 90 days) {
                 vm.startPrank(multipleUsers.user1);
                 ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
@@ -842,7 +846,6 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
             multipleUsers.user3PrevBalance,
             "Wrong withdrawal balance for user3"
         );
+        assert(false);
     }
-
-    // symulacja kilkukrotnych dystrybucji po 14/28 dni
 }

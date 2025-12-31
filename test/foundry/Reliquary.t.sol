@@ -14,6 +14,7 @@ import "./mocks/ERC20Mock.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC1967Utils} from "lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {ReliquaryV2} from "test/foundry/mocks/ReliquaryV2.sol";
+import {IERC1967} from "openzeppelin-contracts/contracts/interfaces/IERC1967.sol";
 
 contract ReliquaryTest is ERC721Holder, Test {
     using Strings for address;
@@ -375,6 +376,8 @@ contract ReliquaryTest is ERC721Holder, Test {
         ReliquaryV2 implV2 = new ReliquaryV2();
 
         // Upgrade proxy to V2
+        vm.expectEmit(true, true, false, false, address(reliquary));
+        emit IERC1967.Upgraded(address(implV2));
         reliquary.upgradeToAndCall(address(implV2), "");
 
         // Verify implementation address changed
@@ -383,5 +386,116 @@ contract ReliquaryTest is ERC721Holder, Test {
         );
         assertEq(newImplAddress, address(implV2));
         assertNotEq(newImplAddress, address(reliquary));
+    }
+
+    // Test storage preserved after upgrade
+    function testStoragePreservedAfterUpgrade() public {
+        // Store initial values in V1
+        uint256 initialEmissionRate = reliquary.emissionRate();
+        address initialRewardToken = reliquary.rewardToken();
+
+        // Deploy V2 and upgrade
+        ReliquaryV2 implV2 = new ReliquaryV2();
+        reliquary.upgradeToAndCall(address(implV2), "");
+
+        // Cast to V2 and check storage
+        ReliquaryV2 reliquaryV2AfterUpgrade = ReliquaryV2(address(reliquary));
+
+        // Verify storage not corrupted
+        assertEq(reliquaryV2AfterUpgrade.emissionRate(), initialEmissionRate);
+        assertEq(reliquaryV2AfterUpgrade.rewardToken(), initialRewardToken);
+        assertEq(reliquaryV2AfterUpgrade.minStakingAmount(), 0);
+    }
+
+    // Test new V2 functions are accessible
+    function testNewV2FunctionsAccessible(uint256 amount) public {
+        // Upgrade to V2
+        ReliquaryV2 implV2 = new ReliquaryV2();
+        reliquary.upgradeToAndCall(address(implV2), "");
+
+        ReliquaryV2 v2Proxy = ReliquaryV2(address(reliquary));
+
+        // Test new V2 function
+        amount = bound(amount, 1, testToken.balanceOf(address(this)));
+        uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, amount);
+        uint256 initialAmount = testToken.balanceOf(address(this));
+        v2Proxy.emergencyWithdraw(relicId);
+        console2.log("Initial amount:", initialAmount);
+        console2.log("Final amount:", testToken.balanceOf(address(this)));
+        assertEq(testToken.balanceOf(address(this)), initialAmount + amount);
+    }
+
+    function testV2InitializationRevert() public {
+        ReliquaryV2 implV2 = new ReliquaryV2();
+
+        bytes memory data = abi.encodeWithSelector(
+            Reliquary.initialize.selector,
+            makeAddr("NewAddr"), // _rewardToken
+            emissionRate + 2, // _emissionRate
+            "ReliquaryV2 Deposit", // _name
+            "RELIC2", // _symbol
+            uint256(2e6) // _minStakingAmount
+        );
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        reliquary.upgradeToAndCall(address(implV2), data);
+
+        ReliquaryV2 v2Proxy = ReliquaryV2(address(reliquary));
+
+        // Initialization values shouldn't be changed
+        assertEq(v2Proxy.rewardToken(), address(oath));
+        assertEq(v2Proxy.emissionRate(), emissionRate);
+        assertEq(v2Proxy.minStakingAmount(), 0);
+    }
+
+    function testOnlyOwnerCanUpgrade() public {
+        ReliquaryV2 implV2 = new ReliquaryV2();
+        address nonOwner = makeAddr("nonOwner");
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        reliquary.upgradeToAndCall(address(implV2), "");
+    }
+
+    // Test storage layout compatibility - NO VARIABLE REORDERING
+    function testStorageLayoutCompatibility() public {
+        // Record all original storage values
+        address originalRewardToken = reliquary.rewardToken();
+        uint256 originalEmissionRate = reliquary.emissionRate();
+        uint256 originalMinStakingAmount = reliquary.minStakingAmount();
+
+        // Upgrade to V2
+        ReliquaryV2 implV2 = new ReliquaryV2();
+        reliquary.upgradeToAndCall(address(implV2), "");
+
+        // Cast and verify original storage preserved
+        ReliquaryV2 v2Proxy = ReliquaryV2(address(reliquary));
+
+        // ✓ All original storage preserved in same slots
+        assertEq(v2Proxy.rewardToken(), originalRewardToken);
+        assertEq(v2Proxy.emissionRate(), originalEmissionRate);
+        assertEq(v2Proxy.minStakingAmount(), originalMinStakingAmount);
+    }
+
+    // Test multiple state mutations before and after upgrade
+    function testMultipleStateChangesPreserved(uint256 amountA, uint256 amountB) public {
+        // For now, just verify the structure supports state changes
+        uint256 preUpgradeEmissionRate = reliquary.emissionRate();
+        assertEq(preUpgradeEmissionRate, emissionRate);
+
+        amountA = bound(amountA, 1, type(uint256).max / 2);
+        amountB = bound(amountB, 1, type(uint256).max / 2);
+        vm.assume(amountA + amountB <= testToken.balanceOf(address(this)));
+        uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, amountA);
+        reliquary.deposit(amountB, relicId, address(0));
+        assertEq(reliquary.getPositionForId(relicId).amount, amountA + amountB);
+
+        // After upgrade
+        ReliquaryV2 implV2 = new ReliquaryV2();
+        reliquary.upgradeToAndCall(address(implV2), "");
+
+        ReliquaryV2 v2Proxy = ReliquaryV2(address(reliquary));
+        assertEq(v2Proxy.emissionRate(), preUpgradeEmissionRate);
+        assertEq(reliquary.getPositionForId(relicId).amount, amountA + amountB);
     }
 }

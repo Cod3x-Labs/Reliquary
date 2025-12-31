@@ -11,6 +11,7 @@ import {NFTDescriptor} from "contracts/nft_descriptors/NFTDescriptor.sol";
 import {ParentRollingRewarder} from "contracts/rewarders/ParentRollingRewarder.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {PolynomialPlateauCurve} from "contracts/curves/PolynomialPlateauCurve.sol";
 
 contract Deploy is Script {
     using stdJson for string;
@@ -45,6 +46,11 @@ contract Deploy is Script {
         uint256 slope;
     }
 
+    struct PolynomialPlateauCurveParams {
+        int256[] coeffs;
+        uint256 plateauLevel;
+    }
+
     bytes32 constant OPERATOR = keccak256("OPERATOR");
     bytes32 constant EMISSION_RATE = keccak256("EMISSION_RATE");
     bytes32 constant GUARDIAN = keccak256("GUARDIAN");
@@ -61,6 +67,7 @@ contract Deploy is Script {
     mapping(uint256 => ParentRollingRewarder) parentForPoolId;
     LinearCurve[] linearCurves;
     LinearPlateauCurve[] linearPlateauCurves;
+    PolynomialPlateauCurve[] polynomialPlateauCurves;
     address depositHelper4626;
 
     function run() external {
@@ -74,7 +81,6 @@ contract Deploy is Script {
         rewardToken = config.readAddress(".rewardToken");
         guardianRole = config.readAddress(".guardianRole");
         uint256 emissionRate = config.readUint(".emissionRate");
-        uint256 lockEndTime = config.readUint(".lockEndTime");
         uint256 minStakingAmount = config.readUint(".minStakingAmount");
         Pool[] memory pools = abi.decode(config.parseRaw(".pools"), (Pool[]));
         poolCount = pools.length;
@@ -90,7 +96,7 @@ contract Deploy is Script {
             emissionRate, // _emissionRate
             name, // _name
             symbol, // _symbol
-            minStakingAmount // _minStakingAmount
+            0 // stubbed to 0 and later updated with non zero value if needed
         );
         reliquary = Reliquary(address(new ERC1967Proxy(address(reliquaryImpl), data)));
 
@@ -106,6 +112,8 @@ contract Deploy is Script {
                 curve = linearCurves[pool.curveIndex];
             } else if (curveTypeHash == keccak256("linearPlateauCurve")) {
                 curve = linearPlateauCurves[pool.curveIndex];
+            } else if (curveTypeHash == keccak256("polynomialPlateauCurve")) {
+                curve = polynomialPlateauCurves[pool.curveIndex];
             } else {
                 revert(string.concat("invalid curve type ", pool.curveType));
             }
@@ -127,6 +135,10 @@ contract Deploy is Script {
         }
 
         _createChildRewarders();
+
+        if (minStakingAmount > 0) {
+            reliquary.setMinStakingAmount(minStakingAmount);
+        }
 
         if (multisig != address(0)) {
             _renounceRoles();
@@ -179,6 +191,16 @@ contract Deploy is Script {
             LinearPlateauCurveParams memory params = linearPlateauCurveParams[i];
             linearPlateauCurves.push(
                 new LinearPlateauCurve(params.slope, params.minMultiplier, params.plateauLevel)
+            );
+        }
+
+        PolynomialPlateauCurveParams[] memory polynomialPlateauCurveParams = abi.decode(
+            config.parseRaw(".polynomialPlateauCurves"), (PolynomialPlateauCurveParams[])
+        );
+        for (uint256 i; i < polynomialPlateauCurveParams.length; ++i) {
+            PolynomialPlateauCurveParams memory params = polynomialPlateauCurveParams[i];
+            polynomialPlateauCurves.push(
+                new PolynomialPlateauCurve(params.coeffs, params.plateauLevel)
             );
         }
     }
