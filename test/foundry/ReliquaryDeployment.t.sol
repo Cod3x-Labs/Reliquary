@@ -138,7 +138,7 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         console2.log("Balance before: %18e", testToken.balanceOf(address(this)));
         reliquary.update(relicId, address(this));
         console2.log("Balance after: %18e", testToken.balanceOf(address(this)));
-        assert(false);
+        // assert(false);
     }
 
     function testPendingMultipleRewards(uint256 amount, uint256 time) public {
@@ -184,250 +184,6 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         uint256 user3PrevBalance;
     }
 
-    function testUsdcWithdrawalRewardFromChild_1Year(uint256 amount, uint256 time) public {
-        MultipleUsers memory multipleUsers;
-        multipleUsers.mainUser = makeAddr("mainUser");
-        multipleUsers.user1 = makeAddr("User1");
-        multipleUsers.user2 = makeAddr("User2");
-        multipleUsers.user3 = makeAddr("User3");
-
-        deal(CDX, multipleUsers.mainUser, 1000 ether);
-        deal(CDX, multipleUsers.user1, 1000 ether);
-        deal(CDX, multipleUsers.user2, 1000 ether);
-        deal(CDX, multipleUsers.user3, 1000 ether);
-
-        testToken.mint(address(reliquary), 0); // 0 main reward from parent
-        time = 3 days; //bound(time, 0, 365 days);
-        childRewarders.push(RollingRewarder(parentRewarder.createChild(USDC)));
-        childRewarders[0].updateDistributionPeriod(365 days);
-        ERC20Mock(USDC).approve(address(childRewarders[0]), type(uint256).max);
-        childRewarders[0].fund(1000e6);
-        amount = 1000e18; //bound(amount, 1, IERC20(CDX).balanceOf(address(this)));
-
-        vm.startPrank(multipleUsers.mainUser);
-        ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
-        multipleUsers.mainUserRelic =
-            reliquary.createRelicAndDeposit(multipleUsers.mainUser, 0, amount);
-        vm.stopPrank();
-
-        multipleUsers.mainUserPrevBalance = IERC20(USDC).balanceOf(multipleUsers.mainUser);
-        // multipleUsers.user1PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user1
-        // );
-        // multipleUsers.user2PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user2
-        // );
-        // multipleUsers.user3PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user3
-        // );
-        for (uint256 idx = 0; idx < 365 days; idx += time) {
-            if (idx == 90 days) {
-                vm.startPrank(multipleUsers.user1);
-                ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
-                multipleUsers.user1Relic =
-                    reliquary.createRelicAndDeposit(multipleUsers.user1, 0, amount);
-                vm.stopPrank();
-            }
-            if (idx == 180 days) {
-                vm.startPrank(multipleUsers.user2);
-                ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
-                multipleUsers.user2Relic =
-                    reliquary.createRelicAndDeposit(multipleUsers.user2, 0, amount);
-                vm.stopPrank();
-                childRewarders[0].fund(1000e6);
-            }
-            if (idx == 270 days) {
-                vm.startPrank(multipleUsers.user3);
-                ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
-                multipleUsers.user3Relic =
-                    reliquary.createRelicAndDeposit(multipleUsers.user3, 0, amount);
-                vm.stopPrank();
-            }
-            skip(time);
-            // reliquary.update(relicId, address(this));
-            // console2.log("Relic id: ", relicId);
-            // reliquary.pendingReward(1) is the bootstrapped relic.
-            // assertApproxEqAbs(
-            //     reliquary.pendingReward(relicId) + reliquary.pendingReward(1),
-            //     time * emissionRate,
-            //     (time * emissionRate) / 100000
-            // ); // max 0,0001%
-
-            // console2.log("1. Pending rewards: ", reliquary.pendingReward(relicId));
-            console2.log(
-                "Main user Day %s. Balance of USDC: %6e",
-                idx / 1 days,
-                IERC20(USDC).balanceOf(multipleUsers.mainUser)
-            );
-            console2.log(
-                "User1 Day %s. Balance of USDC: %6e",
-                idx / 1 days,
-                IERC20(USDC).balanceOf(multipleUsers.user1)
-            );
-            console2.log(
-                "User2 Day %s. Balance of USDC: %6e",
-                idx / 1 days,
-                IERC20(USDC).balanceOf(multipleUsers.user2)
-            );
-            console2.log(
-                "User3 Day %s. Balance of USDC: %6e",
-                idx / 1 days,
-                IERC20(USDC).balanceOf(multipleUsers.user3)
-            );
-            uint256 tmpDiff = IERC20(USDC).balanceOf(multipleUsers.mainUser)
-                >= multipleUsers.mainUserPrevBalance
-                ? IERC20(USDC).balanceOf(multipleUsers.mainUser) - multipleUsers.mainUserPrevBalance
-                : 0;
-            console2.log("Main user Day %s. Diff USDC: %6e", idx / 1 days, tmpDiff);
-            tmpDiff = IERC20(USDC).balanceOf(multipleUsers.user1) >= multipleUsers.user1PrevBalance
-                ? IERC20(USDC).balanceOf(multipleUsers.user1) - multipleUsers.user1PrevBalance
-                : 0;
-            console2.log("User1 Day %s. Diff USDC: %6e", idx / 1 days, tmpDiff);
-            tmpDiff = IERC20(USDC).balanceOf(multipleUsers.user2) >= multipleUsers.user2PrevBalance
-                ? IERC20(USDC).balanceOf(multipleUsers.user2) - multipleUsers.user2PrevBalance
-                : 0;
-            console2.log("User2 Day %s. Diff USDC: %6e", idx / 1 days, tmpDiff);
-            tmpDiff = IERC20(USDC).balanceOf(multipleUsers.user3) >= multipleUsers.user3PrevBalance
-                ? IERC20(USDC).balanceOf(multipleUsers.user3) - multipleUsers.user3PrevBalance
-                : 0;
-            console2.log("User3 Day %s. Diff USDC: %6e", idx / 1 days, tmpDiff);
-
-            multipleUsers.mainUserPrevBalance = IERC20(USDC).balanceOf(multipleUsers.mainUser);
-            vm.prank(multipleUsers.mainUser);
-            reliquary.update(multipleUsers.mainUserRelic, multipleUsers.mainUser);
-            if (idx >= 90 days) {
-                multipleUsers.user1PrevBalance = IERC20(USDC).balanceOf(multipleUsers.user1);
-                vm.prank(multipleUsers.user1);
-                reliquary.update(multipleUsers.user1Relic, multipleUsers.user1);
-            }
-            if (idx >= 180 days) {
-                multipleUsers.user2PrevBalance = IERC20(USDC).balanceOf(multipleUsers.user2);
-                vm.prank(multipleUsers.user2);
-                reliquary.update(multipleUsers.user2Relic, multipleUsers.user2);
-            }
-            if (idx >= 270 days) {
-                multipleUsers.user3PrevBalance = IERC20(USDC).balanceOf(multipleUsers.user3);
-                vm.prank(multipleUsers.user3);
-                reliquary.update(multipleUsers.user3Relic, multipleUsers.user3);
-            }
-
-            // console2.log("2. Pending rewards: ", reliquary.pendingReward(relicId));
-        }
-
-        assert(false);
-    }
-
-    function testPendingUsdcRewardFromChild_1Year(uint256 amount, uint256 time) public {
-        MultipleUsers memory multipleUsers;
-        multipleUsers.mainUser = makeAddr("mainUser");
-        multipleUsers.user1 = makeAddr("User1");
-        multipleUsers.user2 = makeAddr("User2");
-        multipleUsers.user3 = makeAddr("User3");
-
-        deal(CDX, multipleUsers.mainUser, 1000 ether);
-        deal(CDX, multipleUsers.user1, 1000 ether);
-        deal(CDX, multipleUsers.user2, 1000 ether);
-        deal(CDX, multipleUsers.user3, 1000 ether);
-
-        testToken.mint(address(reliquary), 0); // 0 main reward from parent
-        time = 3 days; //bound(time, 0, 365 days);
-        childRewarders.push(RollingRewarder(parentRewarder.createChild(USDC)));
-        childRewarders[0].updateDistributionPeriod(400 days);
-        ERC20Mock(USDC).approve(address(childRewarders[0]), type(uint256).max);
-        childRewarders[0].fund(1000e6);
-        amount = 1000e18; //bound(amount, 1, IERC20(CDX).balanceOf(address(this)));
-
-        vm.startPrank(multipleUsers.mainUser);
-        ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
-        multipleUsers.mainUserRelic =
-            reliquary.createRelicAndDeposit(multipleUsers.mainUser, 0, amount);
-        vm.stopPrank();
-
-        multipleUsers.mainUserPrevBalance = IERC20(USDC).balanceOf(multipleUsers.mainUser);
-        // multipleUsers.user1PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user1
-        // );
-        // multipleUsers.user2PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user2
-        // );
-        // multipleUsers.user3PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user3
-        // );
-        for (uint256 idx = 0; idx < 400 days; idx += time) {
-            if (idx == 90 days) {
-                vm.startPrank(multipleUsers.user1);
-                ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
-                multipleUsers.user1Relic =
-                    reliquary.createRelicAndDeposit(multipleUsers.user1, 0, amount);
-                vm.stopPrank();
-            }
-            if (idx == 180 days) {
-                vm.startPrank(multipleUsers.user2);
-                ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
-                multipleUsers.user2Relic =
-                    reliquary.createRelicAndDeposit(multipleUsers.user2, 0, amount);
-                vm.stopPrank();
-                // childRewarders[0].fund(1000e6);
-            }
-            if (idx == 270 days) {
-                vm.startPrank(multipleUsers.user3);
-                ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
-                multipleUsers.user3Relic =
-                    reliquary.createRelicAndDeposit(multipleUsers.user3, 0, amount);
-                vm.stopPrank();
-            }
-            skip(time);
-
-            PositionInfo memory positionInfo =
-                reliquary.getPositionForId(multipleUsers.mainUserRelic);
-            ICurvesData curve =
-                ICurvesData(address(reliquary.getPoolInfo(uint8(positionInfo.poolId)).curve));
-            uint256 multiplier =
-                (curve.getFunction(uint256(positionInfo.level)) * 10_000) / curve.minMultiplier();
-
-            console2.log(
-                "Main user Day %s. Pending USDC: %6e",
-                idx / 1 days,
-                childRewarders[0].pendingToken(multipleUsers.mainUserRelic)
-            );
-            console2.log("Main user multiplier: ", multiplier);
-            console2.log(
-                "User1 Day %s. Pending USDC: %6e",
-                idx / 1 days,
-                childRewarders[0].pendingToken(multipleUsers.user1Relic)
-            );
-            console2.log(
-                "User2 Day %s. Pending USDC: %6e",
-                idx / 1 days,
-                childRewarders[0].pendingToken(multipleUsers.user2Relic)
-            );
-            console2.log(
-                "User3 Day %s. Pending USDC: %6e",
-                idx / 1 days,
-                childRewarders[0].pendingToken(multipleUsers.user3Relic)
-            );
-
-            vm.prank(multipleUsers.mainUser);
-            reliquary.update(multipleUsers.mainUserRelic, multipleUsers.mainUser);
-            if (idx >= 90 days) {
-                vm.prank(multipleUsers.user1);
-                reliquary.update(multipleUsers.user1Relic, multipleUsers.user1);
-            }
-            if (idx >= 180 days) {
-                vm.prank(multipleUsers.user2);
-                reliquary.update(multipleUsers.user2Relic, multipleUsers.user2);
-            }
-            if (idx >= 270 days) {
-                vm.prank(multipleUsers.user3);
-                reliquary.update(multipleUsers.user3Relic, multipleUsers.user3);
-            }
-
-            // console2.log("2. Pending rewards: ", reliquary.pendingReward(relicId));
-        }
-
-        assert(false);
-    }
-
     function testPendingUsdcRewardFromChild_1YearPolynomial(uint256 amount, uint256 time) public {
         MultipleUsers memory multipleUsers;
         multipleUsers.mainUser = makeAddr("mainUser");
@@ -455,15 +211,6 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         vm.stopPrank();
 
         multipleUsers.mainUserPrevBalance = IERC20(USDC).balanceOf(multipleUsers.mainUser);
-        // multipleUsers.user1PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user1
-        // );
-        // multipleUsers.user2PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user2
-        // );
-        // multipleUsers.user3PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user3
-        // );
         for (uint256 idx = 0; idx < 400 days; idx += time) {
             if (idx == 90 days) {
                 vm.startPrank(multipleUsers.user1);
@@ -636,7 +383,7 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         console2.log("User1 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user1));
         console2.log("User2 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user2));
         console2.log("User3 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user3));
-        assert(false);
+        // assert(false);
     }
 
     function testPendingUsdcRewardFromChild_Multidistributions1YearPolynomial(
@@ -669,15 +416,6 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         vm.stopPrank();
 
         multipleUsers.mainUserPrevBalance = IERC20(USDC).balanceOf(multipleUsers.mainUser);
-        // multipleUsers.user1PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user1
-        // );
-        // multipleUsers.user2PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user2
-        // );
-        // multipleUsers.user3PrevBalance = IERC20(CDX).balanceOf(
-        //     multipleUsers.user3
-        // );
         for (uint256 idx = 0; idx < 400 days; idx += time) {
             if (idx % 14 days == 0 && idx != 0) {
                 childRewarders[0].updateDistributionPeriod(14 days);
@@ -846,6 +584,250 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
             multipleUsers.user3PrevBalance,
             "Wrong withdrawal balance for user3"
         );
-        assert(false);
+        // assert(false);
     }
+
+    // function testUsdcWithdrawalRewardFromChild_1Year(uint256 amount, uint256 time) public {
+    //     MultipleUsers memory multipleUsers;
+    //     multipleUsers.mainUser = makeAddr("mainUser");
+    //     multipleUsers.user1 = makeAddr("User1");
+    //     multipleUsers.user2 = makeAddr("User2");
+    //     multipleUsers.user3 = makeAddr("User3");
+
+    //     deal(CDX, multipleUsers.mainUser, 1000 ether);
+    //     deal(CDX, multipleUsers.user1, 1000 ether);
+    //     deal(CDX, multipleUsers.user2, 1000 ether);
+    //     deal(CDX, multipleUsers.user3, 1000 ether);
+
+    //     testToken.mint(address(reliquary), 0); // 0 main reward from parent
+    //     time = 3 days; //bound(time, 0, 365 days);
+    //     childRewarders.push(RollingRewarder(parentRewarder.createChild(USDC)));
+    //     childRewarders[0].updateDistributionPeriod(365 days);
+    //     ERC20Mock(USDC).approve(address(childRewarders[0]), type(uint256).max);
+    //     childRewarders[0].fund(1000e6);
+    //     amount = 1000e18; //bound(amount, 1, IERC20(CDX).balanceOf(address(this)));
+
+    //     vm.startPrank(multipleUsers.mainUser);
+    //     ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+    //     multipleUsers.mainUserRelic =
+    //         reliquary.createRelicAndDeposit(multipleUsers.mainUser, 0, amount);
+    //     vm.stopPrank();
+
+    //     multipleUsers.mainUserPrevBalance = IERC20(USDC).balanceOf(multipleUsers.mainUser);
+    //     // multipleUsers.user1PrevBalance = IERC20(CDX).balanceOf(
+    //     //     multipleUsers.user1
+    //     // );
+    //     // multipleUsers.user2PrevBalance = IERC20(CDX).balanceOf(
+    //     //     multipleUsers.user2
+    //     // );
+    //     // multipleUsers.user3PrevBalance = IERC20(CDX).balanceOf(
+    //     //     multipleUsers.user3
+    //     // );
+    //     for (uint256 idx = 0; idx < 365 days; idx += time) {
+    //         if (idx == 90 days) {
+    //             vm.startPrank(multipleUsers.user1);
+    //             ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+    //             multipleUsers.user1Relic =
+    //                 reliquary.createRelicAndDeposit(multipleUsers.user1, 0, amount);
+    //             vm.stopPrank();
+    //         }
+    //         if (idx == 180 days) {
+    //             vm.startPrank(multipleUsers.user2);
+    //             ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+    //             multipleUsers.user2Relic =
+    //                 reliquary.createRelicAndDeposit(multipleUsers.user2, 0, amount);
+    //             vm.stopPrank();
+    //             childRewarders[0].fund(1000e6);
+    //         }
+    //         if (idx == 270 days) {
+    //             vm.startPrank(multipleUsers.user3);
+    //             ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+    //             multipleUsers.user3Relic =
+    //                 reliquary.createRelicAndDeposit(multipleUsers.user3, 0, amount);
+    //             vm.stopPrank();
+    //         }
+    //         skip(time);
+    //         // reliquary.update(relicId, address(this));
+    //         // console2.log("Relic id: ", relicId);
+    //         // reliquary.pendingReward(1) is the bootstrapped relic.
+    //         // assertApproxEqAbs(
+    //         //     reliquary.pendingReward(relicId) + reliquary.pendingReward(1),
+    //         //     time * emissionRate,
+    //         //     (time * emissionRate) / 100000
+    //         // ); // max 0,0001%
+
+    //         // console2.log("1. Pending rewards: ", reliquary.pendingReward(relicId));
+    //         console2.log(
+    //             "Main user Day %s. Balance of USDC: %6e",
+    //             idx / 1 days,
+    //             IERC20(USDC).balanceOf(multipleUsers.mainUser)
+    //         );
+    //         console2.log(
+    //             "User1 Day %s. Balance of USDC: %6e",
+    //             idx / 1 days,
+    //             IERC20(USDC).balanceOf(multipleUsers.user1)
+    //         );
+    //         console2.log(
+    //             "User2 Day %s. Balance of USDC: %6e",
+    //             idx / 1 days,
+    //             IERC20(USDC).balanceOf(multipleUsers.user2)
+    //         );
+    //         console2.log(
+    //             "User3 Day %s. Balance of USDC: %6e",
+    //             idx / 1 days,
+    //             IERC20(USDC).balanceOf(multipleUsers.user3)
+    //         );
+    //         uint256 tmpDiff = IERC20(USDC).balanceOf(multipleUsers.mainUser)
+    //             >= multipleUsers.mainUserPrevBalance
+    //             ? IERC20(USDC).balanceOf(multipleUsers.mainUser) - multipleUsers.mainUserPrevBalance
+    //             : 0;
+    //         console2.log("Main user Day %s. Diff USDC: %6e", idx / 1 days, tmpDiff);
+    //         tmpDiff = IERC20(USDC).balanceOf(multipleUsers.user1) >= multipleUsers.user1PrevBalance
+    //             ? IERC20(USDC).balanceOf(multipleUsers.user1) - multipleUsers.user1PrevBalance
+    //             : 0;
+    //         console2.log("User1 Day %s. Diff USDC: %6e", idx / 1 days, tmpDiff);
+    //         tmpDiff = IERC20(USDC).balanceOf(multipleUsers.user2) >= multipleUsers.user2PrevBalance
+    //             ? IERC20(USDC).balanceOf(multipleUsers.user2) - multipleUsers.user2PrevBalance
+    //             : 0;
+    //         console2.log("User2 Day %s. Diff USDC: %6e", idx / 1 days, tmpDiff);
+    //         tmpDiff = IERC20(USDC).balanceOf(multipleUsers.user3) >= multipleUsers.user3PrevBalance
+    //             ? IERC20(USDC).balanceOf(multipleUsers.user3) - multipleUsers.user3PrevBalance
+    //             : 0;
+    //         console2.log("User3 Day %s. Diff USDC: %6e", idx / 1 days, tmpDiff);
+
+    //         multipleUsers.mainUserPrevBalance = IERC20(USDC).balanceOf(multipleUsers.mainUser);
+    //         vm.prank(multipleUsers.mainUser);
+    //         reliquary.update(multipleUsers.mainUserRelic, multipleUsers.mainUser);
+    //         if (idx >= 90 days) {
+    //             multipleUsers.user1PrevBalance = IERC20(USDC).balanceOf(multipleUsers.user1);
+    //             vm.prank(multipleUsers.user1);
+    //             reliquary.update(multipleUsers.user1Relic, multipleUsers.user1);
+    //         }
+    //         if (idx >= 180 days) {
+    //             multipleUsers.user2PrevBalance = IERC20(USDC).balanceOf(multipleUsers.user2);
+    //             vm.prank(multipleUsers.user2);
+    //             reliquary.update(multipleUsers.user2Relic, multipleUsers.user2);
+    //         }
+    //         if (idx >= 270 days) {
+    //             multipleUsers.user3PrevBalance = IERC20(USDC).balanceOf(multipleUsers.user3);
+    //             vm.prank(multipleUsers.user3);
+    //             reliquary.update(multipleUsers.user3Relic, multipleUsers.user3);
+    //         }
+
+    //         // console2.log("2. Pending rewards: ", reliquary.pendingReward(relicId));
+    //     }
+
+    //     // assert(false);
+    // }
+
+    // function testPendingUsdcRewardFromChild_1Year(uint256 amount, uint256 time) public {
+    //     MultipleUsers memory multipleUsers;
+    //     multipleUsers.mainUser = makeAddr("mainUser");
+    //     multipleUsers.user1 = makeAddr("User1");
+    //     multipleUsers.user2 = makeAddr("User2");
+    //     multipleUsers.user3 = makeAddr("User3");
+
+    //     deal(CDX, multipleUsers.mainUser, 1000 ether);
+    //     deal(CDX, multipleUsers.user1, 1000 ether);
+    //     deal(CDX, multipleUsers.user2, 1000 ether);
+    //     deal(CDX, multipleUsers.user3, 1000 ether);
+
+    //     testToken.mint(address(reliquary), 0); // 0 main reward from parent
+    //     time = 3 days; //bound(time, 0, 365 days);
+    //     childRewarders.push(RollingRewarder(parentRewarder.createChild(USDC)));
+    //     childRewarders[0].updateDistributionPeriod(400 days);
+    //     ERC20Mock(USDC).approve(address(childRewarders[0]), type(uint256).max);
+    //     childRewarders[0].fund(1000e6);
+    //     amount = 1000e18; //bound(amount, 1, IERC20(CDX).balanceOf(address(this)));
+
+    //     vm.startPrank(multipleUsers.mainUser);
+    //     ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+    //     multipleUsers.mainUserRelic =
+    //         reliquary.createRelicAndDeposit(multipleUsers.mainUser, 0, amount);
+    //     vm.stopPrank();
+
+    //     multipleUsers.mainUserPrevBalance = IERC20(USDC).balanceOf(multipleUsers.mainUser);
+    //     // multipleUsers.user1PrevBalance = IERC20(CDX).balanceOf(
+    //     //     multipleUsers.user1
+    //     // );
+    //     // multipleUsers.user2PrevBalance = IERC20(CDX).balanceOf(
+    //     //     multipleUsers.user2
+    //     // );
+    //     // multipleUsers.user3PrevBalance = IERC20(CDX).balanceOf(
+    //     //     multipleUsers.user3
+    //     // );
+    //     for (uint256 idx = 0; idx < 400 days; idx += time) {
+    //         if (idx == 90 days) {
+    //             vm.startPrank(multipleUsers.user1);
+    //             ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+    //             multipleUsers.user1Relic =
+    //                 reliquary.createRelicAndDeposit(multipleUsers.user1, 0, amount);
+    //             vm.stopPrank();
+    //         }
+    //         if (idx == 180 days) {
+    //             vm.startPrank(multipleUsers.user2);
+    //             ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+    //             multipleUsers.user2Relic =
+    //                 reliquary.createRelicAndDeposit(multipleUsers.user2, 0, amount);
+    //             vm.stopPrank();
+    //             // childRewarders[0].fund(1000e6);
+    //         }
+    //         if (idx == 270 days) {
+    //             vm.startPrank(multipleUsers.user3);
+    //             ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+    //             multipleUsers.user3Relic =
+    //                 reliquary.createRelicAndDeposit(multipleUsers.user3, 0, amount);
+    //             vm.stopPrank();
+    //         }
+    //         skip(time);
+
+    //         PositionInfo memory positionInfo =
+    //             reliquary.getPositionForId(multipleUsers.mainUserRelic);
+    //         ICurvesData curve =
+    //             ICurvesData(address(reliquary.getPoolInfo(uint8(positionInfo.poolId)).curve));
+    //         uint256 multiplier =
+    //             (curve.getFunction(uint256(positionInfo.level)) * 10_000) / curve.minMultiplier();
+
+    //         console2.log(
+    //             "Main user Day %s. Pending USDC: %6e",
+    //             idx / 1 days,
+    //             childRewarders[0].pendingToken(multipleUsers.mainUserRelic)
+    //         );
+    //         console2.log("Main user multiplier: ", multiplier);
+    //         console2.log(
+    //             "User1 Day %s. Pending USDC: %6e",
+    //             idx / 1 days,
+    //             childRewarders[0].pendingToken(multipleUsers.user1Relic)
+    //         );
+    //         console2.log(
+    //             "User2 Day %s. Pending USDC: %6e",
+    //             idx / 1 days,
+    //             childRewarders[0].pendingToken(multipleUsers.user2Relic)
+    //         );
+    //         console2.log(
+    //             "User3 Day %s. Pending USDC: %6e",
+    //             idx / 1 days,
+    //             childRewarders[0].pendingToken(multipleUsers.user3Relic)
+    //         );
+
+    //         vm.prank(multipleUsers.mainUser);
+    //         reliquary.update(multipleUsers.mainUserRelic, multipleUsers.mainUser);
+    //         if (idx >= 90 days) {
+    //             vm.prank(multipleUsers.user1);
+    //             reliquary.update(multipleUsers.user1Relic, multipleUsers.user1);
+    //         }
+    //         if (idx >= 180 days) {
+    //             vm.prank(multipleUsers.user2);
+    //             reliquary.update(multipleUsers.user2Relic, multipleUsers.user2);
+    //         }
+    //         if (idx >= 270 days) {
+    //             vm.prank(multipleUsers.user3);
+    //             reliquary.update(multipleUsers.user3Relic, multipleUsers.user3);
+    //         }
+
+    //         // console2.log("2. Pending rewards: ", reliquary.pendingReward(relicId));
+    //     }
+
+    //     assert(false);
+    // }
 }

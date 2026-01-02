@@ -4,6 +4,7 @@ pragma solidity 0.8.24;
 import "openzeppelin-contracts/contracts/access/Ownable.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IReliquary, PositionInfo} from "../interfaces/IReliquary.sol";
+import {ReentrancyGuard} from "lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 interface IReaperVault is IERC20 {
     function token() external view returns (IERC20);
@@ -44,7 +45,7 @@ interface IWeth is IERC20 {
  *  @notice Due to the complexities and risks associated with inputting the `Step` struct arrays in each function,
  *  THIS CONTRACT SHOULD NOT BE WRITTEN TO USING A BLOCK EXPLORER.
  */
-contract DepositHelperReaperBPT is Ownable {
+contract DepositHelperReaperBPT is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IReliquary public immutable reliquary;
@@ -86,7 +87,7 @@ contract DepositHelperReaperBPT is Ownable {
         uint256 _relicId,
         bool _harvest,
         bool _giveEther
-    ) external {
+    ) external nonReentrant {
         (, IReaperVault vault) = _prepareWithdrawal(_steps, _relicId, _giveEther);
         if (_giveEther) {
             _withdrawEther(vault, _steps, _shares, _relicId, _harvest);
@@ -100,7 +101,7 @@ contract DepositHelperReaperBPT is Ownable {
         uint256 _relicId,
         bool _giveEther,
         bool _burn
-    ) external {
+    ) external nonReentrant {
         (PositionInfo memory position, IReaperVault vault) =
             _prepareWithdrawal(_steps, _relicId, _giveEther);
         if (_giveEther) {
@@ -114,7 +115,11 @@ contract DepositHelperReaperBPT is Ownable {
     }
 
     /// @notice Owner may send tokens out of this contract since none should be held here. Do not send tokens manually.
-    function rescueFunds(address _token, address _to, uint256 _amount) external onlyOwner {
+    function rescueFunds(address _token, address _to, uint256 _amount)
+        external
+        nonReentrant
+        onlyOwner
+    {
         if (_token == address(0)) {
             (bool success,) = payable(msg.sender).call{value: _amount}("");
             require(success, "Transfer failed");

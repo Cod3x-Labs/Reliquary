@@ -5,6 +5,7 @@ import "openzeppelin-contracts/contracts/access/Ownable.sol";
 import "openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IReliquary, PositionInfo} from "../interfaces/IReliquary.sol";
+import {ReentrancyGuard} from "lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 interface IWeth is IERC20 {
     function deposit() external payable;
@@ -14,7 +15,7 @@ interface IWeth is IERC20 {
 
 /// @title Helper contract that allows depositing to and withdrawing from Reliquary pools of an ERC4626 vault in a
 /// single transaction using the vault's underlying asset.
-contract DepositHelperERC4626 is Ownable {
+contract DepositHelperERC4626 is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IReliquary public immutable reliquary;
@@ -53,7 +54,10 @@ contract DepositHelperERC4626 is Ownable {
      * @param _giveEther Whether to withdraw the underlying tokens as native ether instead of wrapped.
      * Only for supported pools.
      */
-    function withdraw(uint256 _amount, uint256 _relicId, bool _harvest, bool _giveEther) external {
+    function withdraw(uint256 _amount, uint256 _relicId, bool _harvest, bool _giveEther)
+        external
+        nonReentrant
+    {
         (, IERC4626 vault_) = _prepareWithdrawal(_relicId);
         _withdraw(vault_, vault_.convertToShares(_amount), _relicId, _harvest, _giveEther);
     }
@@ -65,7 +69,10 @@ contract DepositHelperERC4626 is Ownable {
      * @param _burn Whether to burn the empty Relic.
      * Only for supported pools.
      */
-    function withdrawAllAndHarvest(uint256 _relicId, bool _giveEther, bool _burn) external {
+    function withdrawAllAndHarvest(uint256 _relicId, bool _giveEther, bool _burn)
+        external
+        nonReentrant
+    {
         (PositionInfo memory position_, IERC4626 vault_) = _prepareWithdrawal(_relicId);
         _withdraw(vault_, position_.amount, _relicId, true, _giveEther);
         if (_burn) {
@@ -74,7 +81,11 @@ contract DepositHelperERC4626 is Ownable {
     }
 
     /// @notice Owner may send tokens out of this contract since none should be held here. Do not send tokens manually.
-    function rescueFunds(address _token, address _to, uint256 _amount) external onlyOwner {
+    function rescueFunds(address _token, address _to, uint256 _amount)
+        external
+        onlyOwner
+        nonReentrant
+    {
         if (_token == address(0)) {
             (bool success,) = payable(_to).call{value: _amount}("");
             require(success, "Transfer failed");
