@@ -8,12 +8,12 @@ script = 'scripts'
 
 solc_version = "0.8.23"
 optimizer = true
-optimizer_runs = 1000
+optimizer_runs = 830
 via_ir = false
 verbosity = 1
 
 #eth-rpc-url = "https://rpcapi.fantom.network"
-rpc_endpoints = { fantom = "https://rpcapi-tracing.fantom.network", optimism = "https://opt-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}" }
+rpc_endpoints = { fantom = "https://rpcapi-tracing.fantom.network", optimism = "https://1rpc.io/op" }
 #sender = ''
 #initial_balance = '0xffffffffffffffffffffffff'
 

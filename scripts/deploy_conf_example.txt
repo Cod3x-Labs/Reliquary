@@ -8,11 +8,14 @@
 #                                                                                                                      #
 # `weth`: Address of the wrapped native token contract for the chain you are deploying to.                             #
 #                                                                                                                      #
-# `multisig`: Address to transfer admin roles to at end of script. Leaving set to address zero will skip this step,    #
+# `multisigRole`: Address to transfer admin roles to at end of script. Leaving set to address zero will skip this step,#
 #     leaving the deployer's address as the admin.                                                                     #
+# `operatorRole`: Address to transfer admin roles to at end of script.                                                 #
+# `emissionRateRole`: Address to transfer admin roles to at end of script.                                             #
 # `rewardToken`: Address of the token this Reliquary deployment is emitting.                                           #
 # `emissionRate`: Emission rate of `rewardToken` from the Reliquary each second.                                       #
-#                                                                                                                      #
+# `lockEndTime`: Timestamp for the end of the global withdrawal lock. If set to a value in the                         #
+#  past, the lock is disabled.                                                                                         #
 # `pools`: May be of any length (or empty). Each member must have each property defined in the correct order shown.    #
 #     `allocPoint`: Amount of allocation points for this pool. The pool will receive emissions proportional to the     #
 #         total number of allocation points for all pools.                                                             #
@@ -48,9 +51,14 @@
 
     "weth": "0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83",
 
-    "multisig": "0x0000000000000000000000000000000000000000",
+    "multisigRole": "0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b",
+    "operatorRole": "0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b",
+    "emissionRateRole": "0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b",
+    "guardianRole" : "0x0D1d0f89cb988678B37FD5b5c6C1A5bBdc55f8ba",
+    
     "rewardToken": "0x21Ada0D2aC28C3A5Fa3cD2eE30882dA8812279B6",
     "emissionRate": "10000000000",
+    "lockEndTime": "1754521200",
 
     "pools": [
         {
@@ -87,12 +95,67 @@
     ],
 
     "linearCurves": [
+        {
+            "slope": 0,
+            "minMultiplier": 100
+        }
     ],
 
     "linearPlateauCurves": [
         {
             "minMultiplier": 31536000,
             "plateauLevel": 31536000,
+            "slope": 1
+        }
+    ]
+}
+
+{
+    "name": "Cod3x Staking",
+    "symbol": "CDX-S-POS",
+
+    "weth": "0x4200000000000000000000000000000000000006",
+
+    "multisigRole": "0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b",
+    "operatorRole": "0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b",
+    "emissionRateRole": "0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b",
+    "guardianRole" : "0x0D1d0f89cb988678B37FD5b5c6C1A5bBdc55f8ba",
+    "rewardToken": "0xb22a793a81ff5b6ad37f40d5fe1e0ac4184d52f3",
+    "emissionRate": "0",
+    "lockEndTime": "1755494271",
+
+    "pools": [
+        {
+            "allocPoint": 1000,
+            "allowPartialWithdrawals": true,
+            "curveIndex": 0,
+            "curveType": "linearPlateauCurve",
+            "name": "CDX Staking Pool",
+            "poolToken": "0xC0D3700000c0e32716863323bFd936b54a1633d1",
+            "tokenType": "normal"
+        }
+    ],
+
+    "parentRewarders": [
+        {
+            "poolId": 0
+        }
+    ],
+
+    "childRewarders": [
+        {
+            "parentIndex": 0,
+            "rewarderToken": "0xC0D3700000c0e32716863323bFd936b54a1633d1"
+        }
+    ],
+
+    "linearCurves": [
+    ],
+
+    "linearPlateauCurves": [
+        {
+            "minMultiplier": 15768000,
+            "plateauLevel": 15768000,
             "slope": 1
         }
     ]

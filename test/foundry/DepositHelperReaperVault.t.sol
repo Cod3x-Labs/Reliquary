@@ -41,7 +41,7 @@ contract DepositHelperReaperVaultTest is ERC721Holder, Test {
         vm.createSelectFork("optimism", 111980000);
 
         oath = IERC20(0x00e1724885473B63bCE08a9f0a52F35b0979e35A);
-        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC");
+        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
         linearCurve = new LinearCurve(slope, minMultiplier);
 
         address nftDescriptor = address(new NFTDescriptor(address(reliquary)));

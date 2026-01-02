@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.23;
 
-import "contracts/interfaces/ICurves.sol";
+import "contracts/interfaces/ICurvesData.sol";
 import "lib/openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
 
 /// @dev Level of precision rewards are calculated to.
@@ -60,10 +60,10 @@ struct PoolInfo {
     uint40 lastRewardTime;
     bool allowPartialWithdrawals;
     uint96 allocPoint;
-    ICurves curve;
+    ICurvesData curve;
 }
 
-interface IReliquary is IERC721 {
+interface IReliquaryData is IERC721 {
     // Errors
     error Reliquary__BURNING_PRINCIPAL();
     error Reliquary__BURNING_REWARDS();
@@ -89,7 +89,7 @@ interface IReliquary is IERC721 {
         uint256 _allocPoint,
         address _poolToken,
         address _rewarder,
-        ICurves _curve,
+        ICurvesData _curve,
         string memory _name,
         address _nftDescriptor,
         bool _allowPartialWithdrawals,
@@ -148,4 +148,6 @@ interface IReliquary is IERC721 {
     function emissionRate() external view returns (uint256);
 
     function totalAllocPoint() external view returns (uint256);
+
+    function tokenOfOwnerByIndex(address _owner, uint256 _index) external view returns (uint256);
 }

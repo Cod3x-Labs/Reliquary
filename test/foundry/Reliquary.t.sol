@@ -38,7 +38,7 @@ contract ReliquaryTest is ERC721Holder, Test {
         }
 
         oath = new ERC20Mock(18);
-        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC");
+        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateau);
         linearCurve = new LinearCurve(slope, minMultiplier);
         polynomialPlateauCurve = new PolynomialPlateauCurve(coeffDynamic, 850);
@@ -332,5 +332,42 @@ contract ReliquaryTest is ERC721Holder, Test {
 
         reliquary.unpause();
         reliquary.createRelicAndDeposit(address(this), 0, 1000);
+    }
+
+    function testLock() public {
+        uint256 startTime = block.timestamp;
+        console.log("start time: ", startTime);
+        reliquary.setLockEndTime(startTime + 120 days);
+        console.log("lock end time: ", startTime + 120 days);
+        uint256 id = reliquary.createRelicAndDeposit(address(this), 0, 1000);
+        console.log("relic id: ", id);
+        vm.expectRevert(IReliquary.Reliquary__LOCKED.selector);
+        reliquary.withdraw(850, id, address(this));
+        vm.expectRevert(IReliquary.Reliquary__LOCKED.selector);
+        reliquary.withdraw(1000, id, address(this));
+        vm.expectRevert(IReliquary.Reliquary__LOCKED.selector);
+        reliquary.emergencyWithdraw(id);
+
+        // Skip to time before lock end but after some rewards accumulate
+        vm.warp(startTime + 50 days);
+        uint256 oldOathBalance = oath.balanceOf(address(this));
+        reliquary.update(id, address(this));
+        uint256 deltaBalance = oath.balanceOf(address(this)) - oldOathBalance;
+        console.log("change in oath balance after update: ", deltaBalance);
+        assertGt(deltaBalance, 0);
+        reliquary.deposit(1001, id, address(this));
+
+        // Skip to time after lock end
+        vm.warp(startTime + 120 days + 1);
+        uint256 oldMockBalance = testToken.balanceOf(address(this));
+        reliquary.withdraw(1001, id, address(this));
+        deltaBalance = testToken.balanceOf(address(this)) - oldMockBalance;
+        console.log("change in mock balance after withdraw: ", deltaBalance);
+        assertEq(deltaBalance, 1001);
+        oldMockBalance = testToken.balanceOf(address(this));
+        reliquary.emergencyWithdraw(id);
+        deltaBalance = testToken.balanceOf(address(this)) - oldMockBalance;
+        console.log("change in mock balance after emergency withdraw: ", deltaBalance);
+        assertEq(deltaBalance, 1000);
     }
 }

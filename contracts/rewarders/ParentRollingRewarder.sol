@@ -20,6 +20,7 @@ contract ParentRollingRewarder is IParentRollingRewarder, Ownable {
     error ParentRollingRewarder__ONLY_RELIQUARY_ACCESS();
     error ParentRollingRewarder__ONLY_CHILD_CAN_BE_REMOVED();
     error ParentRollingRewarder__ALREADY_INITIALIZED();
+    error ParentRollingRewarder__NOT_INITIALIZED();
 
     // Events
     event ChildCreated(address indexed _child, address indexed _token);
@@ -52,6 +53,9 @@ contract ParentRollingRewarder is IParentRollingRewarder, Ownable {
      * @return child_ Address of the new ChildRewarder.
      */
     function createChild(address _rewardToken) external onlyOwner returns (address child_) {
+        if (poolId == type(uint8).max || reliquary == address(0)) {
+            revert ParentRollingRewarder__NOT_INITIALIZED();
+        }
         child_ = address(new RollingRewarder(_rewardToken, reliquary, poolId));
         childrenRewarders.add(child_);
         emit ChildCreated(child_, address(_rewardToken));
