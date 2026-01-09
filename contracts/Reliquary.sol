@@ -49,6 +49,8 @@ import {
     Initializable
 } from "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
 
+import {CooldownWithdrawal} from "./CooldownWithdrawal.sol";
+
 /**
  * @title Reliquary
  * @author Justin Bebis, Zokunei, Beirao & the Byte Masons team
@@ -70,9 +72,9 @@ contract Reliquary is
     AccessControlEnumerableUpgradeable,
     UUPSUpgradeable,
     ReentrancyGuard,
-    IReliquary,
-    MulticallUpgradeable
+    IReliquary
 {
+    //MulticallUpgradeable
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
 
@@ -98,6 +100,8 @@ contract Reliquary is
     /// @dev Info of each staked position.
     mapping(uint256 => PositionInfo) internal positionForId;
 
+    address public cooldownWithdrawal;
+
     /**
      * @dev Constructs and initializes the contract.
      * @param _rewardToken The reward token contract address.
@@ -114,7 +118,8 @@ contract Reliquary is
         uint256 _emissionRate,
         string memory _name,
         string memory _symbol,
-        uint256 _minStakingAmount
+        uint256 _minStakingAmount,
+        address _cooldownWithdrawal
     ) public initializer {
         __ERC721_init(_name, _symbol);
         __ERC721Enumerable_init();
@@ -123,6 +128,7 @@ contract Reliquary is
         rewardToken = _rewardToken;
         emissionRate = _emissionRate;
         minStakingAmount = _minStakingAmount;
+        cooldownWithdrawal = _cooldownWithdrawal;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
@@ -156,6 +162,14 @@ contract Reliquary is
     function setMinStakingAmount(uint256 _minStakingAmount) external onlyRole(DEFAULT_ADMIN_ROLE) {
         minStakingAmount = _minStakingAmount;
         emit ReliquaryEvents.LogSetMinStakingAmount(_minStakingAmount);
+    }
+
+    function setCooldownWithdrawal(address _cooldownWithdrawal)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        cooldownWithdrawal = _cooldownWithdrawal;
+        emit ReliquaryEvents.LogSetCooldownWithdrawal(_cooldownWithdrawal);
     }
 
     /**
@@ -689,8 +703,12 @@ contract Reliquary is
 
         uint8 poolId_ = _updatePosition(_amount, _relicId, Kind.WITHDRAW, _harvestTo);
 
-        IERC20(poolInfo[poolId_].poolToken).safeTransfer(msg.sender, _amount);
-
+        if (cooldownWithdrawal == address(0)) {
+            IERC20(poolInfo[poolId_].poolToken).safeTransfer(msg.sender, _amount);
+        } else {
+            IERC20(poolInfo[poolId_].poolToken).approve(cooldownWithdrawal, _amount);
+            CooldownWithdrawal(cooldownWithdrawal).registerWithdrawal(msg.sender, poolId_, _amount);
+        }
         emit ReliquaryEvents.Withdraw(poolId_, _amount, msg.sender, _relicId);
     }
 
