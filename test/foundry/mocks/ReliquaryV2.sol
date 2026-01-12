@@ -70,8 +70,7 @@ contract ReliquaryV2 is
     AccessControlEnumerableUpgradeable,
     UUPSUpgradeable,
     ReentrancyGuard,
-    IReliquary,
-    MulticallUpgradeable
+    IReliquary
 {
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
@@ -97,6 +96,7 @@ contract ReliquaryV2 is
     PoolInfo[] private poolInfo;
     /// @dev Info of each staked position.
     mapping(uint256 => PositionInfo) internal positionForId;
+    address public cooldownWithdrawal;
 
     /**
      * @dev Constructs and initializes the contract.
@@ -114,7 +114,8 @@ contract ReliquaryV2 is
         uint256 _emissionRate,
         string memory _name,
         string memory _symbol,
-        uint256 _minStakingAmount
+        uint256 _minStakingAmount,
+        address _cooldownWithdrawal
     ) public initializer {
         __ERC721_init(_name, _symbol);
         __ERC721Enumerable_init();
@@ -123,6 +124,7 @@ contract ReliquaryV2 is
         rewardToken = _rewardToken;
         emissionRate = _emissionRate;
         minStakingAmount = _minStakingAmount;
+        cooldownWithdrawal = _cooldownWithdrawal;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
@@ -156,6 +158,19 @@ contract ReliquaryV2 is
     function setMinStakingAmount(uint256 _minStakingAmount) external onlyRole(DEFAULT_ADMIN_ROLE) {
         minStakingAmount = _minStakingAmount;
         emit ReliquaryEvents.LogSetMinStakingAmount(_minStakingAmount);
+    }
+
+    /**
+     * @notice Set the cooldown withdrawal contract address.
+     * @dev When set, withdrawals may be routed through the `CooldownWithdrawal` contract.
+     * @param _cooldownWithdrawal Address of the CooldownWithdrawal contract.
+     */
+    function setCooldownWithdrawal(address _cooldownWithdrawal)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        cooldownWithdrawal = _cooldownWithdrawal;
+        emit ReliquaryEvents.LogSetCooldownWithdrawal(_cooldownWithdrawal);
     }
 
     /**

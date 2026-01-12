@@ -55,7 +55,8 @@ contract DepositHelperReaperBPTTest is ERC721Holder, Test {
             emissionRate, // _emissionRate
             "Reliquary Deposit", // _name
             "RELIC", // _symbol
-            uint256(0) // _minStakingAmount
+            uint256(0), // _minStakingAmount
+            address(0) // _cooldownWithdrawal
         );
         reliquary = Reliquary(address(new ERC1967Proxy(address(reliquaryImpl), data)));
 

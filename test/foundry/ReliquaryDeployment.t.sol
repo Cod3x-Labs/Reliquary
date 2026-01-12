@@ -29,7 +29,7 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
     address weth = 0x4200000000000000000000000000000000000006;
     address multisig = 0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b; // to confirm !!
     address mainRewardToken; // TONY ?
-    uint256 emissionRate = 1e17; //Desired value = 0
+    uint256 emissionRate = 0; //Desired value = 0
 
     // Pool#1
     uint256 allocPoints = 100;
@@ -85,7 +85,8 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
             emissionRate, // _emissionRate
             "Reliquary Deposit", // _name
             "RELIC", // _symbol
-            uint256(0) // _minStakingAmount
+            uint256(0), // _minStakingAmount
+            address(0) // _cooldownWithdrawal
         );
         reliquary = Reliquary(address(new ERC1967Proxy(address(reliquaryImpl), data)));
 
@@ -118,6 +119,95 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         );
 
         ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+    }
+
+    function testDistributionPeriodWorking(uint256 amount, uint256 time) public {
+        MultipleUsers memory multipleUsers;
+        multipleUsers.mainUser = makeAddr("mainUser");
+        multipleUsers.user1 = makeAddr("User1");
+        multipleUsers.user2 = makeAddr("User2");
+        deal(CDX, multipleUsers.mainUser, 1000 ether);
+        deal(CDX, multipleUsers.user1, 1000 ether);
+        deal(CDX, multipleUsers.user2, 1000 ether);
+
+        amount = 5e18; //bound(amount, 1, IERC20(CDX).balanceOf(address(this)));
+
+        testToken.mint(address(reliquary), 10000 ether);
+        time = 1 days; //bound(time, 0, 365 days);
+        childRewarders.push(RollingRewarder(parentRewarder.createChild(USDC)));
+        childRewarders[0].updateDistributionPeriod(10 days);
+
+        vm.startPrank(multipleUsers.mainUser);
+        ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+        multipleUsers.mainUserRelic =
+            reliquary.createRelicAndDeposit(multipleUsers.mainUser, 0, amount);
+        vm.stopPrank();
+
+        skip(10 days);
+
+        vm.prank(multipleUsers.mainUser);
+        reliquary.update(multipleUsers.mainUserRelic, multipleUsers.mainUser);
+
+        console2.log("1. User balance: %6e", IERC20(USDC).balanceOf(multipleUsers.mainUser));
+        console2.log("1. User1 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user1));
+        console2.log("1. User2 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user2));
+
+        vm.startPrank(multipleUsers.user1);
+        ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+        multipleUsers.user1Relic = reliquary.createRelicAndDeposit(multipleUsers.user1, 0, amount);
+        vm.stopPrank();
+
+        ERC20Mock(USDC).approve(address(childRewarders[0]), type(uint256).max);
+        childRewarders[0].fund(3e6);
+
+        skip(5 days);
+
+        vm.prank(multipleUsers.mainUser);
+        reliquary.update(multipleUsers.mainUserRelic, multipleUsers.mainUser);
+
+        vm.prank(multipleUsers.user1);
+        reliquary.update(multipleUsers.user1Relic, multipleUsers.user1);
+
+        vm.startPrank(multipleUsers.user2);
+        ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+        multipleUsers.user2Relic = reliquary.createRelicAndDeposit(multipleUsers.user2, 0, amount);
+        vm.stopPrank();
+
+        console2.log("2. User balance: %6e", IERC20(USDC).balanceOf(multipleUsers.mainUser));
+        console2.log("2. User1 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user1));
+        console2.log("2. User2 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user2));
+
+        skip(5 days);
+
+        vm.prank(multipleUsers.mainUser);
+        reliquary.update(multipleUsers.mainUserRelic, multipleUsers.mainUser);
+
+        vm.prank(multipleUsers.user1);
+        reliquary.update(multipleUsers.user1Relic, multipleUsers.user1);
+
+        vm.prank(multipleUsers.user2);
+        reliquary.update(multipleUsers.user2Relic, multipleUsers.user2);
+
+        console2.log("3. User balance: %6e", IERC20(USDC).balanceOf(multipleUsers.mainUser));
+        console2.log("3. User1 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user1));
+        console2.log("3. User2 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user2));
+
+        skip(5 days);
+
+        vm.prank(multipleUsers.mainUser);
+        reliquary.update(multipleUsers.mainUserRelic, multipleUsers.mainUser);
+
+        vm.prank(multipleUsers.user1);
+        reliquary.update(multipleUsers.user1Relic, multipleUsers.user1);
+
+        vm.prank(multipleUsers.user2);
+        reliquary.update(multipleUsers.user2Relic, multipleUsers.user2);
+
+        console2.log("4. User balance: %6e", IERC20(USDC).balanceOf(multipleUsers.mainUser));
+        console2.log("4. User1 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user1));
+        console2.log("4. User2 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user2));
+
+        assert(false);
     }
 
     function testPendingSingleReward(uint256 amount, uint256 time) public {

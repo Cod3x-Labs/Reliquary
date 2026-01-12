@@ -12,6 +12,7 @@ import {ParentRollingRewarder} from "contracts/rewarders/ParentRollingRewarder.s
 import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {PolynomialPlateauCurve} from "contracts/curves/PolynomialPlateauCurve.sol";
+import {CooldownWithdrawal} from "contracts/CooldownWithdrawal.sol";
 
 contract Deploy is Script {
     using stdJson for string;
@@ -82,6 +83,7 @@ contract Deploy is Script {
         guardianRole = config.readAddress(".guardianRole");
         uint256 emissionRate = config.readUint(".emissionRate");
         uint256 minStakingAmount = config.readUint(".minStakingAmount");
+        uint256 cooldownPeriod = config.readUint(".cooldownPeriod");
         Pool[] memory pools = abi.decode(config.parseRaw(".pools"), (Pool[]));
         poolCount = pools.length;
 
@@ -96,7 +98,8 @@ contract Deploy is Script {
             emissionRate, // _emissionRate
             name, // _name
             symbol, // _symbol
-            0 // stubbed to 0 and later updated with non zero value if needed
+            0, // stubbed to 0 and later updated with non zero value if needed
+            address(0) // _cooldownWithdrawal
         );
         reliquary = Reliquary(address(new ERC1967Proxy(address(reliquaryImpl), data)));
 
@@ -138,6 +141,13 @@ contract Deploy is Script {
 
         if (minStakingAmount > 0) {
             reliquary.setMinStakingAmount(minStakingAmount);
+        }
+
+        if (cooldownPeriod > 0) {
+            CooldownWithdrawal cooldownWithdrawal =
+                new CooldownWithdrawal(cooldownPeriod, address(reliquary));
+            reliquary.setCooldownWithdrawal(address(cooldownWithdrawal));
+            cooldownWithdrawal.transferOwnership(multisig);
         }
 
         if (multisig != address(0)) {

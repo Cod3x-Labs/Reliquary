@@ -51,7 +51,8 @@ contract ReliquaryTest is ERC721Holder, Test {
             emissionRate, // _emissionRate
             "Reliquary Deposit", // _name
             "RELIC", // _symbol
-            uint256(0) // _minStakingAmount
+            uint256(0), // _minStakingAmount
+            address(0)
         );
 
         // Deploy implementation
@@ -355,7 +356,9 @@ contract ReliquaryTest is ERC721Holder, Test {
 
     function testMultipleInitalizationRevert() public {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        reliquary.initialize(address(oath), emissionRate - 1, "Reliquary Depositt", "REELIC", 1);
+        reliquary.initialize(
+            address(oath), emissionRate - 1, "Reliquary Depositt", "REELIC", 1, address(0)
+        );
     }
 
     function testInitialized() public {
@@ -434,7 +437,8 @@ contract ReliquaryTest is ERC721Holder, Test {
             emissionRate + 2, // _emissionRate
             "ReliquaryV2 Deposit", // _name
             "RELIC2", // _symbol
-            uint256(2e6) // _minStakingAmount
+            uint256(2e6), // _minStakingAmount
+            address(0)
         );
 
         vm.expectRevert(Initializable.InvalidInitialization.selector);

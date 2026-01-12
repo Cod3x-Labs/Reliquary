@@ -74,7 +74,6 @@ contract Reliquary is
     ReentrancyGuard,
     IReliquary
 {
-    //MulticallUpgradeable
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
 
@@ -133,6 +132,12 @@ contract Reliquary is
     }
 
     // -------------- admin functions --------------
+
+    /**
+     * @notice Authorize contract upgrade.
+     * @dev Restricted to `DEFAULT_ADMIN_ROLE` via `onlyRole` modifier.
+     * @param newImplementation Address of the new implementation contract.
+     */
     function _authorizeUpgrade(address newImplementation)
         internal
         override
@@ -164,6 +169,11 @@ contract Reliquary is
         emit ReliquaryEvents.LogSetMinStakingAmount(_minStakingAmount);
     }
 
+    /**
+     * @notice Set the cooldown withdrawal contract address.
+     * @dev When set, withdrawals may be routed through the `CooldownWithdrawal` contract.
+     * @param _cooldownWithdrawal Address of the CooldownWithdrawal contract.
+     */
     function setCooldownWithdrawal(address _cooldownWithdrawal)
         external
         onlyRole(DEFAULT_ADMIN_ROLE)
@@ -702,11 +712,14 @@ contract Reliquary is
         if (_amount == 0) revert Reliquary__WRONG_INPUT();
 
         uint8 poolId_ = _updatePosition(_amount, _relicId, Kind.WITHDRAW, _harvestTo);
-
+        IERC20 poolToken = IERC20(poolInfo[poolId_].poolToken);
         if (cooldownWithdrawal == address(0)) {
-            IERC20(poolInfo[poolId_].poolToken).safeTransfer(msg.sender, _amount);
+            poolToken.safeTransfer(msg.sender, _amount);
         } else {
-            IERC20(poolInfo[poolId_].poolToken).approve(cooldownWithdrawal, _amount);
+            if (poolToken.allowance(address(this), cooldownWithdrawal) > 0) {
+                poolToken.forceApprove(cooldownWithdrawal, 0);
+            }
+            poolToken.forceApprove(cooldownWithdrawal, _amount);
             CooldownWithdrawal(cooldownWithdrawal).registerWithdrawal(msg.sender, poolId_, _amount);
         }
         emit ReliquaryEvents.Withdraw(poolId_, _amount, msg.sender, _relicId);
@@ -832,6 +845,14 @@ contract Reliquary is
             .constructTokenURI(_relicId);
     }
 
+    /**
+     * @notice Internal override for ERC721 `_update` hook required by multiple extensions.
+     * @dev Forwards to parent implementations from `ERC721Upgradeable`, `ERC721EnumerableUpgradeable`, and `ERC721PausableUpgradeable`.
+     * @param to Address to set as owner in the update.
+     * @param tokenId Token identifier being updated.
+     * @param auth Authorization address used by the underlying implementations.
+     * @return Address returned by parent `_update`.
+     */
     function _update(address to, uint256 tokenId, address auth)
         internal
         override(ERC721Upgradeable, ERC721EnumerableUpgradeable, ERC721PausableUpgradeable)
@@ -840,6 +861,12 @@ contract Reliquary is
         return super._update(to, tokenId, auth);
     }
 
+    /**
+     * @notice Internal override to increase an account's ERC721 balance.
+     * @dev Required override when combining `ERC721Upgradeable` with `ERC721EnumerableUpgradeable`.
+     * @param account Account whose balance is increased.
+     * @param value Amount to increase the balance by.
+     */
     function _increaseBalance(address account, uint128 value)
         internal
         override(ERC721Upgradeable, ERC721EnumerableUpgradeable)
