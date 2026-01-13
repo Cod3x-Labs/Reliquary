@@ -215,7 +215,7 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         console2.log("4. User1 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user1));
         console2.log("4. User2 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user2));
 
-        assert(false);
+        // assert(false);
     }
 
     function testPendingSingleReward(uint256 amount, uint256 time) public {
