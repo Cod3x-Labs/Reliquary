@@ -4,13 +4,17 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ERC20Mock} from "test/foundry/mocks/ERC20Mock.sol";
-import {CooldownWithdrawal} from "contracts/CooldownWithdrawal.sol";
+import {Pausable, Ownable, CooldownWithdrawal} from "contracts/CooldownWithdrawal.sol";
+import {ICooldownWithdrawal} from "contracts/interfaces/ICooldownWithdrawal.sol";
 import {Reliquary} from "contracts/Reliquary.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {PolynomialPlateauCurve} from "contracts/curves/PolynomialPlateauCurve.sol";
 import {ParentRollingRewarder} from "contracts/rewarders/ParentRollingRewarder.sol";
 import {NFTDescriptor} from "contracts/nft_descriptors/NFTDescriptor.sol";
 import {ERC721Holder} from "openzeppelin-contracts/contracts/token/ERC721/utils/ERC721Holder.sol";
+import {
+    PausableUpgradeable
+} from "lib/openzeppelin-contracts-upgradeable/contracts/utils/PausableUpgradeable.sol";
 import {console2} from "forge-std/console2.sol";
 
 contract CooldownWithdrawalTest is ERC721Holder, Test {
@@ -22,11 +26,14 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
     address user1 = makeAddr("user1");
     address user2 = makeAddr("user2");
     address mainRewardToken;
+    address multisig;
 
     uint256 relicId;
     uint256 user1RelicId;
     uint256 user2RelicId;
 
+    bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
+    bytes32 private constant GUARDIAN = keccak256("GUARDIAN");
     uint256 constant COOLDOWN_PERIOD = 3 days;
     uint8 constant POOL_ID = 0;
     uint256 constant INITIAL_BALANCE = 10000e18;
@@ -45,7 +52,7 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
         // Deploy mock token
         token = new ERC20Mock(18);
         mainRewardToken = address(new ERC20Mock(18));
-        address multisig = makeAddr("multisig");
+        multisig = makeAddr("multisig");
 
         Reliquary reliquaryImpl = new Reliquary();
         bytes memory data = abi.encodeWithSelector(
@@ -98,6 +105,8 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
         user2RelicId = reliquary.createRelicAndDeposit(user2, 0, DEPOSIT_AMOUNT);
         vm.stopPrank();
 
+        console2.log("Reliquary address: ", address(reliquary));
+
         // Deploy cooldown contract
         vm.prank(owner);
         cooldownContract = new CooldownWithdrawal(COOLDOWN_PERIOD, address(reliquary));
@@ -140,19 +149,19 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
 
     function test_registerWithdrawal_RevertZeroAmount() external {
         vm.prank(address(reliquary));
-        vm.expectRevert(CooldownWithdrawal.ZeroAmount.selector);
+        vm.expectRevert(ICooldownWithdrawal.ZeroAmount.selector);
         cooldownContract.registerWithdrawal(user1, POOL_ID, 0);
     }
 
     function test_registerWithdrawal_RevertZeroAddress() external {
         vm.prank(address(reliquary));
-        vm.expectRevert(CooldownWithdrawal.InvalidWithdrawalId.selector);
+        vm.expectRevert(ICooldownWithdrawal.InvalidWithdrawalId.selector);
         cooldownContract.registerWithdrawal(address(0), POOL_ID, WITHDRAWAL_AMOUNT);
     }
 
     function test_registerWithdrawal_RevertNotReliquary() external {
         vm.prank(user1);
-        vm.expectRevert(CooldownWithdrawal.OnlyReliquary.selector);
+        vm.expectRevert(ICooldownWithdrawal.OnlyReliquary.selector);
         cooldownContract.registerWithdrawal(user1, POOL_ID, WITHDRAWAL_AMOUNT);
     }
 
@@ -221,7 +230,7 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
         uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
 
         vm.prank(user1);
-        vm.expectRevert(CooldownWithdrawal.WithdrawalNotReady.selector);
+        vm.expectRevert(ICooldownWithdrawal.WithdrawalNotReady.selector);
         cooldownContract.executeWithdrawal(withdrawalId);
     }
 
@@ -232,9 +241,10 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
 
         vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
 
-        vm.prank(user2);
-        vm.expectRevert(CooldownWithdrawal.OnlyRequestOwner.selector);
+        vm.startPrank(user2);
+        vm.expectRevert(ICooldownWithdrawal.OnlyRequestOwner.selector);
         cooldownContract.executeWithdrawal(withdrawalId);
+        vm.stopPrank();
     }
 
     function test_executeWithdrawal_RevertAlreadyExecuted() external {
@@ -248,12 +258,12 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
         cooldownContract.executeWithdrawal(withdrawalId);
 
         vm.prank(user1);
-        vm.expectRevert(CooldownWithdrawal.WithdrawalAlreadyExecuted.selector);
+        vm.expectRevert(ICooldownWithdrawal.WithdrawalAlreadyExecuted.selector);
         cooldownContract.executeWithdrawal(withdrawalId);
     }
 
     function test_executeWithdrawal_InvalidId() external {
-        vm.expectRevert(CooldownWithdrawal.InvalidWithdrawalId.selector);
+        vm.expectRevert(ICooldownWithdrawal.InvalidWithdrawalId.selector);
         cooldownContract.executeWithdrawal(999);
     }
 
@@ -266,7 +276,7 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
 
         vm.prank(user1);
         vm.expectEmit(true, true, true, true);
-        emit CooldownWithdrawal.WithdrawalExecuted(
+        emit ICooldownWithdrawal.WithdrawalExecuted(
             withdrawalId, user1, address(token), WITHDRAWAL_AMOUNT
         );
         cooldownContract.executeWithdrawal(withdrawalId);
@@ -292,13 +302,13 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
         uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
 
         vm.prank(user2);
-        vm.expectRevert(CooldownWithdrawal.OnlyRequestOwner.selector);
+        vm.expectRevert(ICooldownWithdrawal.OnlyRequestOwner.selector);
         cooldownContract.cancelWithdrawal(withdrawalId);
     }
 
     function test_cancelWithdrawal_RevertAlreadyExecuted() external {
         vm.prank(user1);
-        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 2, user1RelicId, user1);
         uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
 
         vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
@@ -307,13 +317,26 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
         cooldownContract.executeWithdrawal(withdrawalId);
 
         vm.prank(user1);
-        vm.expectRevert(CooldownWithdrawal.WithdrawalAlreadyExecuted.selector);
+        vm.expectRevert(ICooldownWithdrawal.WithdrawalAlreadyExecuted.selector);
         cooldownContract.cancelWithdrawal(withdrawalId);
+
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 2, user1RelicId, user1);
+        withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+
+        vm.prank(user1);
+        cooldownContract.cancelWithdrawal(withdrawalId);
+
+        vm.prank(user1);
+        vm.expectRevert(ICooldownWithdrawal.WithdrawalAlreadyExecuted.selector);
+        cooldownContract.executeWithdrawal(withdrawalId);
     }
 
     function test_cancelWithdrawal_InvalidId() external {
         vm.prank(user1);
-        vm.expectRevert(CooldownWithdrawal.InvalidWithdrawalId.selector);
+        vm.expectRevert(ICooldownWithdrawal.InvalidWithdrawalId.selector);
         cooldownContract.cancelWithdrawal(999);
     }
 
@@ -338,7 +361,7 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
 
         vm.prank(user1);
         vm.expectEmit(true, true, false, false);
-        emit CooldownWithdrawal.WithdrawalCancelled(withdrawalId, user1);
+        emit ICooldownWithdrawal.WithdrawalCancelled(withdrawalId, user1);
         cooldownContract.cancelWithdrawal(withdrawalId);
     }
 
@@ -354,14 +377,20 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
     }
 
     function test_setCooldownPeriod_RevertNotOwner() external {
-        vm.prank(user1);
-        vm.expectRevert(CooldownWithdrawal.OnlyRequestOwner.selector);
+        vm.startPrank(user1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                user1 // The actual caller address
+            )
+        );
         cooldownContract.setCooldownPeriod(7 days);
+        vm.stopPrank();
     }
 
     function test_setCooldownPeriod_RevertZero() external {
         vm.prank(owner);
-        vm.expectRevert(CooldownWithdrawal.InvalidCooldown.selector);
+        vm.expectRevert(ICooldownWithdrawal.InvalidCooldown.selector);
         cooldownContract.setCooldownPeriod(0);
     }
 
@@ -370,7 +399,7 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
 
         vm.prank(owner);
         vm.expectEmit(false, false, false, true);
-        emit CooldownWithdrawal.CooldownPeriodUpdated(newCooldown);
+        emit ICooldownWithdrawal.CooldownPeriodUpdated(newCooldown);
         cooldownContract.setCooldownPeriod(newCooldown);
     }
 
@@ -488,7 +517,6 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
         vm.prank(user1);
         reliquary.withdraw(WITHDRAWAL_AMOUNT / 2, user1RelicId, user1);
         uint256 id1 = cooldownContract.getUserWithdrawals(user1)[0];
-        uint256 nid1 = cooldownContract.getUsersNotExecutedWithdrawals(user1)[0];
 
         vm.prank(user1);
         reliquary.withdraw(WITHDRAWAL_AMOUNT / 2, user1RelicId, user1);
@@ -501,9 +529,8 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
         vm.prank(user1);
         cooldownContract.executeWithdrawal(id1);
 
-        uint256 nid2 = cooldownContract.getUsersNotExecutedWithdrawals(user1)[0];
+        uint256 nid2 = cooldownContract.getUserWithdrawals(user1)[0];
 
-        assertEq(nid1, id1, "Wrong ids 1");
         assertEq(nid2, id2, "Wrong ids 2");
 
         assertEq(cooldownContract.getPendingWithdrawalCount(user1), 1);
@@ -511,7 +538,7 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
         vm.prank(user1);
         cooldownContract.cancelWithdrawal(id2);
 
-        uint256[] memory arr = cooldownContract.getUsersNotExecutedWithdrawals(user1);
+        uint256[] memory arr = cooldownContract.getUserWithdrawals(user1);
 
         assertEq(arr.length, 0, "Wrong ids after cancel");
 
@@ -553,5 +580,574 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
         cooldownContract.executeWithdrawal(id3);
 
         assertEq(cooldownContract.getPendingWithdrawalCount(user2), 0);
+    }
+
+    // ============ cancelWithdrawal Error Tests ============
+
+    /// @notice Test that cancelWithdrawal reverts when Reliquary.createRelicAndDeposit fails
+    function test_cancelWithdrawal_RevertReliquaryOperationFailed() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        // Pause reliquary to make createRelicAndDeposit fail
+
+        reliquary.grantRole(GUARDIAN, multisig);
+        vm.startPrank(multisig);
+        reliquary.pause();
+        vm.stopPrank();
+
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
+        cooldownContract.cancelWithdrawal(withdrawalId);
+    }
+
+    // ============ MAX_PENDING_WITHDRAWALS Tests ============
+
+    /// @notice Test that registerWithdrawal reverts when user reaches MAX_PENDING_WITHDRAWALS
+    function test_registerWithdrawal_RevertTooManyPendingWithdrawals() external {
+        // Create MAX_PENDING_WITHDRAWALS (200) withdrawals for user1
+        uint256 maxPending = cooldownContract.MAX_PENDING_WITHDRAWALS();
+
+        // Need to deposit more to user1 to allow 200 withdrawals
+        uint256 smallAmount = 10e18;
+        vm.startPrank(user1);
+        token.approve(address(reliquary), type(uint256).max);
+
+        // Deposit enough to make 200 withdrawals
+        reliquary.deposit(smallAmount * maxPending, user1RelicId, address(0));
+
+        // Create exactly MAX_PENDING_WITHDRAWALS withdrawals
+        for (uint256 i = 0; i < maxPending; i++) {
+            reliquary.withdraw(smallAmount, user1RelicId, user1);
+        }
+        vm.stopPrank();
+
+        // Verify we have exactly MAX_PENDING_WITHDRAWALS
+        assertEq(cooldownContract.getUserWithdrawals(user1).length, maxPending);
+        assertEq(cooldownContract.getPendingWithdrawalCount(user1), maxPending);
+
+        // Try to create one more withdrawal - should revert
+        vm.prank(user1);
+        vm.expectRevert(ICooldownWithdrawal.TooManyPendingWithdrawals.selector);
+        reliquary.withdraw(smallAmount, user1RelicId, user1);
+    }
+
+    /// @notice Test that after executing a withdrawal, user can create new ones
+    function test_registerWithdrawal_CanCreateAfterExecuting() external {
+        uint256 maxPending = cooldownContract.MAX_PENDING_WITHDRAWALS();
+        uint256 smallAmount = 10e18;
+
+        vm.startPrank(user1);
+        token.approve(address(reliquary), type(uint256).max);
+        reliquary.deposit(smallAmount * (maxPending + 1), user1RelicId, address(0));
+
+        // Create MAX_PENDING_WITHDRAWALS withdrawals
+        for (uint256 i = 0; i < maxPending; i++) {
+            reliquary.withdraw(smallAmount, user1RelicId, user1);
+        }
+
+        // Verify we're at the limit
+        assertEq(cooldownContract.getUserWithdrawals(user1).length, maxPending);
+
+        // Can't create more
+        vm.expectRevert(ICooldownWithdrawal.TooManyPendingWithdrawals.selector);
+        reliquary.withdraw(smallAmount, user1RelicId, user1);
+
+        // Execute one withdrawal
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+        uint256 firstId = cooldownContract.getUserWithdrawals(user1)[0];
+        cooldownContract.executeWithdrawal(firstId);
+
+        // Now we should be able to create a new one
+        reliquary.withdraw(smallAmount, user1RelicId, user1);
+        vm.stopPrank();
+
+        // Verify count is still at max (199 pending + 1 new = 200)
+        assertEq(cooldownContract.getPendingWithdrawalCount(user1), maxPending);
+    }
+
+    /// @notice Test that after canceling a withdrawal, user can create new ones
+    function test_registerWithdrawal_CanCreateAfterCanceling() external {
+        uint256 maxPending = cooldownContract.MAX_PENDING_WITHDRAWALS();
+        uint256 smallAmount = 10e18;
+
+        vm.startPrank(user1);
+        token.approve(address(reliquary), type(uint256).max);
+        reliquary.deposit(smallAmount * (maxPending + 1), user1RelicId, address(0));
+
+        // Create MAX_PENDING_WITHDRAWALS withdrawals
+        for (uint256 i = 0; i < maxPending; i++) {
+            reliquary.withdraw(smallAmount, user1RelicId, user1);
+        }
+
+        // Verify we're at the limit
+        assertEq(cooldownContract.getUserWithdrawals(user1).length, maxPending);
+
+        // Cancel one withdrawal (no need to wait for cooldown)
+        uint256 firstId = cooldownContract.getUserWithdrawals(user1)[0];
+        cooldownContract.cancelWithdrawal(firstId);
+        vm.stopPrank();
+
+        // Now we should be able to create a new one
+        vm.prank(user1);
+        reliquary.withdraw(smallAmount, user1RelicId, user1);
+
+        // Verify count is back at max-1 (canceled doesn't count as pending)
+        assertEq(cooldownContract.getPendingWithdrawalCount(user1), maxPending);
+    }
+
+    /// @notice Test that different users can each have MAX_PENDING_WITHDRAWALS
+    function test_registerWithdrawal_MaxPendingPerUser() external {
+        uint256 maxPending = 10; // Use smaller number for gas efficiency in test
+        uint256 smallAmount = 10e18;
+
+        // Setup user1
+        vm.startPrank(user1);
+        token.approve(address(reliquary), type(uint256).max);
+        reliquary.deposit(smallAmount * maxPending, user1RelicId, address(0));
+        for (uint256 i = 0; i < maxPending; i++) {
+            reliquary.withdraw(smallAmount, user1RelicId, user1);
+        }
+        vm.stopPrank();
+
+        // Setup user2
+        vm.startPrank(user2);
+        token.approve(address(reliquary), type(uint256).max);
+        reliquary.deposit(smallAmount * maxPending, user2RelicId, address(0));
+        for (uint256 i = 0; i < maxPending; i++) {
+            reliquary.withdraw(smallAmount, user2RelicId, user2);
+        }
+        vm.stopPrank();
+
+        // Both users should have their max pending
+        assertEq(cooldownContract.getUserWithdrawals(user1).length, maxPending);
+        assertEq(cooldownContract.getUserWithdrawals(user2).length, maxPending);
+        assertEq(cooldownContract.getPendingWithdrawalCount(user1), maxPending);
+        assertEq(cooldownContract.getPendingWithdrawalCount(user2), maxPending);
+    }
+
+    /// @notice Test edge case: exactly at MAX_PENDING_WITHDRAWALS-1, then add one more
+    function test_registerWithdrawal_EdgeCaseAtLimit() external {
+        uint256 maxPending = cooldownContract.MAX_PENDING_WITHDRAWALS();
+        uint256 smallAmount = 10e18;
+
+        vm.startPrank(user1);
+        token.approve(address(reliquary), type(uint256).max);
+        reliquary.deposit(smallAmount * maxPending, user1RelicId, address(0));
+
+        // Create MAX_PENDING_WITHDRAWALS - 1 withdrawals
+        for (uint256 i = 0; i < maxPending - 1; i++) {
+            reliquary.withdraw(smallAmount, user1RelicId, user1);
+        }
+
+        // Should have 199 pending
+        assertEq(cooldownContract.getUserWithdrawals(user1).length, maxPending - 1);
+
+        // One more should work (reaching exactly 200)
+        reliquary.withdraw(smallAmount, user1RelicId, user1);
+        assertEq(cooldownContract.getUserWithdrawals(user1).length, maxPending);
+
+        // Now 201st should fail
+        vm.expectRevert(ICooldownWithdrawal.TooManyPendingWithdrawals.selector);
+        reliquary.withdraw(smallAmount, user1RelicId, user1);
+        vm.stopPrank();
+    }
+
+    // ============ emergencyWithdrawal Tests ============
+
+    /// @notice Test successful emergency withdrawal by owner
+    function test_emergencyWithdrawal_Success() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        uint256 userBalanceBefore = token.balanceOf(user1);
+        uint256 contractBalanceBefore = token.balanceOf(address(cooldownContract));
+
+        // Owner can execute emergency withdrawal
+        vm.prank(owner);
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+
+        uint256 userBalanceAfter = token.balanceOf(user1);
+        uint256 contractBalanceAfter = token.balanceOf(address(cooldownContract));
+
+        // Verify tokens transferred
+        assertEq(userBalanceAfter, userBalanceBefore + WITHDRAWAL_AMOUNT);
+        assertEq(contractBalanceBefore - contractBalanceAfter, WITHDRAWAL_AMOUNT);
+
+        // Verify withdrawal marked as executed
+        (,,,,, bool executed) = cooldownContract.getWithdrawalDetails(withdrawalId);
+        assertTrue(executed);
+
+        // Verify removed from pending list
+        assertEq(cooldownContract.getUserWithdrawals(user1).length, 0);
+        assertEq(cooldownContract.getPendingWithdrawalCount(user1), 0);
+    }
+
+    /// @notice Test that emergency withdrawal bypasses cooldown period (main feature)
+    function test_emergencyWithdrawal_BypassesCooldown() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        // Immediately after withdrawal (NO cooldown wait)
+        assertFalse(cooldownContract.isWithdrawalReady(withdrawalId));
+        assertEq(cooldownContract.getTimeRemaining(withdrawalId), COOLDOWN_PERIOD);
+
+        uint256 userBalanceBefore = token.balanceOf(user1);
+
+        // Owner executes emergency withdrawal WITHOUT waiting
+        vm.prank(owner);
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+
+        // User receives tokens despite cooldown not being elapsed
+        uint256 userBalanceAfter = token.balanceOf(user1);
+        assertEq(userBalanceAfter, userBalanceBefore + WITHDRAWAL_AMOUNT);
+    }
+
+    /// @notice Test that non-owner cannot call emergencyWithdrawal
+    function test_emergencyWithdrawal_RevertNotOwner() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        // User tries to call emergency withdrawal
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+
+        // Another user tries
+        vm.prank(user2);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user2));
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+
+        // Random address tries
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, attacker)
+        );
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+    }
+
+    /// @notice Test emergencyWithdrawal reverts on invalid withdrawal ID
+    function test_emergencyWithdrawal_RevertInvalidId() external {
+        vm.prank(owner);
+        vm.expectRevert(ICooldownWithdrawal.InvalidWithdrawalId.selector);
+        cooldownContract.emergencyWithdrawal(999);
+
+        // Also test with ID 0 when no withdrawals exist
+        vm.prank(owner);
+        vm.expectRevert(ICooldownWithdrawal.InvalidWithdrawalId.selector);
+        cooldownContract.emergencyWithdrawal(0);
+    }
+
+    /// @notice Test emergencyWithdrawal reverts if already executed
+    function test_emergencyWithdrawal_RevertAlreadyExecuted() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        // Execute emergency withdrawal first time
+        vm.prank(owner);
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+
+        // Try to execute again - should revert
+        vm.prank(owner);
+        vm.expectRevert(ICooldownWithdrawal.WithdrawalAlreadyExecuted.selector);
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+    }
+
+    /// @notice Test emergency withdrawal after normal execution should fail
+    function test_emergencyWithdrawal_RevertAfterNormalExecution() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        // Wait for cooldown and execute normally
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+        vm.prank(user1);
+        cooldownContract.executeWithdrawal(withdrawalId);
+
+        // Owner tries emergency withdrawal on already executed withdrawal
+        vm.prank(owner);
+        vm.expectRevert(ICooldownWithdrawal.WithdrawalAlreadyExecuted.selector);
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+    }
+
+    /// @notice Test emergency withdrawal after cancellation should fail
+    function test_emergencyWithdrawal_RevertAfterCancel() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        // User cancels the withdrawal
+        vm.prank(user1);
+        cooldownContract.cancelWithdrawal(withdrawalId);
+
+        // Owner tries emergency withdrawal on canceled withdrawal
+        vm.prank(owner);
+        vm.expectRevert(ICooldownWithdrawal.WithdrawalAlreadyExecuted.selector);
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+    }
+
+    /// @notice Test that normal execution fails after emergency withdrawal
+    function test_emergencyWithdrawal_BlocksNormalExecution() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        // Owner does emergency withdrawal
+        vm.prank(owner);
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+
+        // Wait for cooldown
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+
+        // User tries to execute normally - should fail
+        vm.prank(user1);
+        vm.expectRevert(ICooldownWithdrawal.WithdrawalAlreadyExecuted.selector);
+        cooldownContract.executeWithdrawal(withdrawalId);
+    }
+
+    /// @notice Test that cancellation fails after emergency withdrawal
+    function test_emergencyWithdrawal_BlocksCancellation() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        // Owner does emergency withdrawal
+        vm.prank(owner);
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+
+        // User tries to cancel - should fail
+        vm.prank(user1);
+        vm.expectRevert(ICooldownWithdrawal.WithdrawalAlreadyExecuted.selector);
+        cooldownContract.cancelWithdrawal(withdrawalId);
+    }
+
+    /// @notice Test emergency withdrawal emits correct event
+    function test_emergencyWithdrawal_EmitsEvent() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        vm.prank(owner);
+        vm.expectEmit(true, true, true, true);
+        emit ICooldownWithdrawal.WithdrawalExecuted(
+            withdrawalId, user1, address(token), WITHDRAWAL_AMOUNT
+        );
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+    }
+
+    /// @notice Test emergency withdrawal on multiple withdrawals
+    function test_emergencyWithdrawal_MultipleWithdrawals() external {
+        // Create 3 withdrawals for user1
+        vm.startPrank(user1);
+        reliquary.withdraw(100e18, user1RelicId, user1);
+        uint256 id1 = cooldownContract.getUserWithdrawals(user1)[0];
+
+        reliquary.withdraw(200e18, user1RelicId, user1);
+        uint256 id2 = cooldownContract.getUserWithdrawals(user1)[1];
+
+        reliquary.withdraw(300e18, user1RelicId, user1);
+        uint256 id3 = cooldownContract.getUserWithdrawals(user1)[2];
+        vm.stopPrank();
+
+        assertEq(cooldownContract.getPendingWithdrawalCount(user1), 3);
+
+        uint256 userBalanceBefore = token.balanceOf(user1);
+
+        // Owner emergency withdraws the middle one
+        vm.prank(owner);
+        cooldownContract.emergencyWithdrawal(id2);
+
+        // Check balance increased by 200e18
+        assertEq(token.balanceOf(user1), userBalanceBefore + 200e18);
+
+        // Check pending count decreased
+        assertEq(cooldownContract.getPendingWithdrawalCount(user1), 2);
+
+        // Check the other two are still valid
+        (,,,,, bool executed1) = cooldownContract.getWithdrawalDetails(id1);
+        (,,,,, bool executed3) = cooldownContract.getWithdrawalDetails(id3);
+        assertFalse(executed1);
+        assertFalse(executed3);
+
+        // Owner can emergency withdraw the others
+        vm.startPrank(owner);
+        cooldownContract.emergencyWithdrawal(id1);
+        cooldownContract.emergencyWithdrawal(id3);
+        vm.stopPrank();
+
+        // All should be executed now
+        assertEq(cooldownContract.getPendingWithdrawalCount(user1), 0);
+        assertEq(token.balanceOf(user1), userBalanceBefore + 600e18);
+    }
+
+    /// @notice Test emergency withdrawal for different users
+    function test_emergencyWithdrawal_DifferentUsers() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 id1 = cooldownContract.getUserWithdrawals(user1)[0];
+
+        vm.prank(user2);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 2, user2RelicId, user2);
+        uint256 id2 = cooldownContract.getUserWithdrawals(user2)[0];
+
+        uint256 user1BalanceBefore = token.balanceOf(user1);
+        uint256 user2BalanceBefore = token.balanceOf(user2);
+
+        // Owner emergency withdraws both
+        vm.startPrank(owner);
+        cooldownContract.emergencyWithdrawal(id1);
+        cooldownContract.emergencyWithdrawal(id2);
+        vm.stopPrank();
+
+        // Check both users received their tokens
+        assertEq(token.balanceOf(user1), user1BalanceBefore + WITHDRAWAL_AMOUNT);
+        assertEq(token.balanceOf(user2), user2BalanceBefore + WITHDRAWAL_AMOUNT / 2);
+
+        // Check both pending counts are 0
+        assertEq(cooldownContract.getPendingWithdrawalCount(user1), 0);
+        assertEq(cooldownContract.getPendingWithdrawalCount(user2), 0);
+    }
+
+    /// @notice Test emergency withdrawal immediately after registration (0 seconds elapsed)
+    function test_emergencyWithdrawal_ImmediatelyAfterRegistration() external {
+        uint256 timestampBefore = block.timestamp;
+
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        // Verify we're at the exact same timestamp (no time passed)
+        assertEq(block.timestamp, timestampBefore);
+        assertEq(cooldownContract.getTimeRemaining(withdrawalId), COOLDOWN_PERIOD);
+
+        // Owner can immediately emergency withdraw
+        vm.prank(owner);
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+
+        // Verify success
+        (,,,,, bool executed) = cooldownContract.getWithdrawalDetails(withdrawalId);
+        assertTrue(executed);
+    }
+
+    /// @notice Test emergency withdrawal updates isWithdrawalReady status
+    function test_emergencyWithdrawal_UpdatesReadyStatus() external {
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+        uint256 withdrawalId = cooldownContract.getUserWithdrawals(user1)[0];
+
+        // Before emergency withdrawal - not ready (cooldown not elapsed)
+        assertFalse(cooldownContract.isWithdrawalReady(withdrawalId));
+
+        // Owner does emergency withdrawal
+        vm.prank(owner);
+        cooldownContract.emergencyWithdrawal(withdrawalId);
+
+        // After emergency withdrawal - still not "ready" (because executed = true)
+        assertFalse(cooldownContract.isWithdrawalReady(withdrawalId));
+
+        // Even after cooldown period passes
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+        assertFalse(cooldownContract.isWithdrawalReady(withdrawalId));
+    }
+
+    /// @notice Test emergency withdrawal with exact balance check
+    function test_emergencyWithdrawal_ExactBalanceTransfer() external {
+        // Create multiple withdrawals to test exact amounts
+        vm.startPrank(user1);
+        reliquary.withdraw(123e18, user1RelicId, user1);
+        uint256 id1 = cooldownContract.getUserWithdrawals(user1)[0];
+
+        reliquary.withdraw(456e18, user1RelicId, user1);
+        uint256 id2 = cooldownContract.getUserWithdrawals(user1)[1];
+        vm.stopPrank();
+
+        uint256 user1Balance = token.balanceOf(user1);
+        uint256 contractBalance = token.balanceOf(address(cooldownContract));
+
+        // Emergency withdraw first one
+        vm.prank(owner);
+        cooldownContract.emergencyWithdrawal(id1);
+
+        // Check exact amounts
+        assertEq(token.balanceOf(user1), user1Balance + 123e18);
+        assertEq(token.balanceOf(address(cooldownContract)), contractBalance - 123e18);
+
+        user1Balance = token.balanceOf(user1);
+        contractBalance = token.balanceOf(address(cooldownContract));
+
+        // Emergency withdraw second one
+        vm.prank(owner);
+        cooldownContract.emergencyWithdrawal(id2);
+
+        // Check exact amounts again
+        assertEq(token.balanceOf(user1), user1Balance + 456e18);
+        assertEq(token.balanceOf(address(cooldownContract)), contractBalance - 456e18);
+    }
+
+    function testOnlyOwnerCanPauseUnpause() public {
+        address attacker = address(0xCAFE);
+        // non-owner cannot pause
+        vm.prank(attacker);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                attacker // The actual caller address
+            )
+        );
+        cooldownContract.pause();
+
+        // owner can pause/unpause
+        vm.startPrank(owner);
+        cooldownContract.pause();
+        assertTrue(cooldownContract.paused());
+        cooldownContract.unpause();
+        assertFalse(cooldownContract.paused());
+        vm.stopPrank();
+    }
+
+    function testRegisterAndExecuteRevertWhenPaused() public {
+        // approve cooldown contract to pull tokens from mockReliquary
+        vm.startPrank(user1);
+        token.approve(address(reliquary), type(uint256).max);
+        user1RelicId = reliquary.createRelicAndDeposit(user1, 0, WITHDRAWAL_AMOUNT);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT, user1RelicId, user1);
+
+        vm.stopPrank();
+
+        // fast forward to after cooldown
+        skip(1 days + 1);
+
+        // pause the contract
+        vm.prank(owner);
+        cooldownContract.pause();
+
+        // executeWithdrawal should revert while paused
+        uint256 wid = cooldownContract.getUserWithdrawals(user1)[0];
+        vm.prank(user1);
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        cooldownContract.executeWithdrawal(wid);
+
+        // emergencyWithdrawal by owner should succeed even when paused
+        uint256 userBalBefore = token.balanceOf(user1);
+        vm.prank(owner);
+        cooldownContract.emergencyWithdrawal(wid);
+        assertEq(token.balanceOf(user1), userBalBefore + WITHDRAWAL_AMOUNT);
+    }
+
+    function testRegisterRevertsWhenPaused() public {
+        // pause first
+        vm.prank(owner);
+        cooldownContract.pause();
+
+        // attempt to register should revert with Pausable
+        vm.prank(address(reliquary));
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        cooldownContract.registerWithdrawal(user1, 0, 1 ether);
     }
 }

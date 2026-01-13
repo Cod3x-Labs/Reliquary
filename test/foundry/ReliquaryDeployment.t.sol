@@ -23,12 +23,14 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
     address constant CDX = 0xC0D3700000c0e32716863323bFd936b54a1633d1;
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
 
+    bytes32 private constant EMISSION_RATE = keccak256("EMISSION_RATE");
+
     // Params
     string name = "Reliquary Deposit";
     string symbol = "RELIC";
     address weth = 0x4200000000000000000000000000000000000006;
     address multisig = 0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b; // to confirm !!
-    address mainRewardToken; // TONY ?
+    address mainRewardToken; // = 0xB22a793a81ff5b6Ad37F40d5FE1E0AC4184d52F3; // TONY
     uint256 emissionRate = 0; //Desired value = 0
 
     // Pool#1
@@ -38,6 +40,8 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
     uint256 slope = 1; // Increase of multiplier every second
     uint256 minMultiplier = 730 days; // 365 days / 2; // from previous deployment
     uint256 plateau = 365 days; // from previous deployment
+
+    uint256 cooldownPeriod = 604800;
 
     // int256[] public coeff = [
     //     int256(100e18),
@@ -64,6 +68,7 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
     // ERC20Mock oath;
     ERC20Mock testToken;
     address nftDescriptor;
+    CooldownWithdrawal cooldownWithdrawal;
 
     function setUp() public {
         vm.createSelectFork("base");
@@ -89,6 +94,8 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
             address(0) // _cooldownWithdrawal
         );
         reliquary = Reliquary(address(new ERC1967Proxy(address(reliquaryImpl), data)));
+
+        cooldownWithdrawal = new CooldownWithdrawal(cooldownPeriod, address(reliquary));
 
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateau);
         linearCurve = new LinearCurve(slope, minMultiplier);
@@ -117,6 +124,7 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
             true,
             multisig
         );
+        reliquary.setCooldownWithdrawal(address(cooldownWithdrawal));
 
         ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
     }
@@ -232,6 +240,8 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
     }
 
     function testPendingMultipleRewards(uint256 amount, uint256 time) public {
+        reliquary.grantRole(EMISSION_RATE, address(this));
+        reliquary.setEmissionRate(100);
         testToken.mint(address(reliquary), 10000 ether);
         time = 1 days; //bound(time, 0, 365 days);
         childRewarders.push(RollingRewarder(parentRewarder.createChild(CDX)));
@@ -247,16 +257,39 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         // reliquary.pendingReward(1) is the bootstrapped relic.
         assertApproxEqAbs(
             reliquary.pendingReward(relicId) + reliquary.pendingReward(1),
-            time * emissionRate,
-            (time * emissionRate) / 100000
+            time * reliquary.emissionRate(),
+            (time * reliquary.emissionRate()) / 100000,
+            "Wrong pending rewards"
         ); // max 0,0001%
+        uint256 initialBalanceOfCdx = IERC20(CDX).balanceOf(address(this));
+        uint256 childPendingRewards = childRewarders[0].pendingToken(relicId);
         console2.log("1. Pending rewards: ", reliquary.pendingReward(relicId));
         console2.log("1. Balance of testToken: ", testToken.balanceOf(address(this)));
-        console2.log("1. Balance of CDX: ", IERC20(CDX).balanceOf(address(this)));
+        console2.log("1. Balance of CDX: ", initialBalanceOfCdx);
         reliquary.withdraw(amount, relicId, address(this));
+        assertEq(reliquary.pendingReward(relicId), 0, "Pending rewards shall be 0");
+        assertApproxEqAbs(
+            testToken.balanceOf(address(this)),
+            time * reliquary.emissionRate(),
+            (time * reliquary.emissionRate()) / 100000,
+            "Wrong main rewards balance"
+        );
+        assertEq(
+            initialBalanceOfCdx + childPendingRewards,
+            IERC20(CDX).balanceOf(address(this)),
+            "Wrong child pending rewards"
+        );
+        skip(7 days);
+        uint256 withdrawalId = cooldownWithdrawal.getUserWithdrawals(address(this))[0];
+        cooldownWithdrawal.executeWithdrawal(withdrawalId);
         console2.log("2. Pending rewards: ", reliquary.pendingReward(relicId));
         console2.log("2. Balance of testToken: ", testToken.balanceOf(address(this)));
         console2.log("2. Balance of CDX: ", IERC20(CDX).balanceOf(address(this)));
+        assertEq(
+            initialBalanceOfCdx + childPendingRewards + amount,
+            IERC20(CDX).balanceOf(address(this)),
+            "Wrong child pending rewards 2"
+        );
     }
 
     struct MultipleUsers {
@@ -450,6 +483,45 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         reliquary.withdraw(amount, multipleUsers.user3Relic, multipleUsers.user3);
 
         assertEq(
+            IERC20(CDX).balanceOf(multipleUsers.mainUser),
+            1000 ether - amount,
+            "Wrong CDX balance for main user"
+        );
+        assertEq(
+            IERC20(CDX).balanceOf(multipleUsers.user1),
+            1000 ether - amount,
+            "Wrong CDX balance for user1"
+        );
+        assertEq(
+            IERC20(CDX).balanceOf(multipleUsers.user2),
+            1000 ether - amount,
+            "Wrong CDX balance for user2"
+        );
+        assertEq(
+            IERC20(CDX).balanceOf(multipleUsers.user3),
+            1000 ether - amount,
+            "Wrong CDX balance for user3"
+        );
+
+        skip(7 days);
+
+        uint256 withdrawalId = cooldownWithdrawal.getUserWithdrawals(multipleUsers.mainUser)[0];
+        vm.prank(multipleUsers.mainUser);
+        cooldownWithdrawal.executeWithdrawal(withdrawalId);
+
+        withdrawalId = cooldownWithdrawal.getUserWithdrawals(multipleUsers.user1)[0];
+        vm.prank(multipleUsers.user1);
+        cooldownWithdrawal.executeWithdrawal(withdrawalId);
+
+        withdrawalId = cooldownWithdrawal.getUserWithdrawals(multipleUsers.user2)[0];
+        vm.prank(multipleUsers.user2);
+        cooldownWithdrawal.executeWithdrawal(withdrawalId);
+
+        withdrawalId = cooldownWithdrawal.getUserWithdrawals(multipleUsers.user3)[0];
+        vm.prank(multipleUsers.user3);
+        cooldownWithdrawal.executeWithdrawal(withdrawalId);
+
+        assertEq(
             IERC20(USDC).balanceOf(multipleUsers.mainUser),
             multipleUsers.mainUserPrevBalance,
             "Wrong withdrawal balance for main user"
@@ -473,7 +545,21 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         console2.log("User1 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user1));
         console2.log("User2 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user2));
         console2.log("User3 balance: %6e", IERC20(USDC).balanceOf(multipleUsers.user3));
-        // assert(false);
+        // CDX balances should be restored to the initial deposited amount (1000 ether)
+        assertEq(
+            IERC20(CDX).balanceOf(multipleUsers.mainUser),
+            1000 ether,
+            "Wrong CDX balance for main user"
+        );
+        assertEq(
+            IERC20(CDX).balanceOf(multipleUsers.user1), 1000 ether, "Wrong CDX balance for user1"
+        );
+        assertEq(
+            IERC20(CDX).balanceOf(multipleUsers.user2), 1000 ether, "Wrong CDX balance for user2"
+        );
+        assertEq(
+            IERC20(CDX).balanceOf(multipleUsers.user3), 1000 ether, "Wrong CDX balance for user3"
+        );
     }
 
     function testPendingUsdcRewardFromChild_Multidistributions1YearPolynomial(
@@ -491,6 +577,7 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         deal(CDX, multipleUsers.user2, 1000 ether);
         deal(CDX, multipleUsers.user3, 1000 ether);
 
+        reliquary.setCooldownWithdrawal(address(0));
         testToken.mint(address(reliquary), 0); // 0 main reward from parent
         time = 3 days; //bound(time, 0, 365 days);
         childRewarders.push(RollingRewarder(parentRewarder.createChild(USDC)));

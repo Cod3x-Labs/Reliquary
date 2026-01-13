@@ -7,6 +7,7 @@ import {ReentrancyGuard} from "lib/openzeppelin-contracts/contracts/utils/Reentr
 import {IReliquary} from "contracts/interfaces/IReliquary.sol";
 import {ICooldownWithdrawal} from "contracts/interfaces/ICooldownWithdrawal.sol";
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Pausable} from "lib/openzeppelin-contracts/contracts/utils/Pausable.sol";
 
 /**
  * @title CooldownWithdrawal
@@ -14,7 +15,7 @@ import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
  * Other contracts call registerWithdrawal() to initiate a withdrawal request
  * After cooldown expires, users can call executeWithdrawal() to claim tokens
  */
-contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable {
+contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pausable {
     using SafeERC20 for IERC20;
 
     uint256 public constant MAX_PENDING_WITHDRAWALS = 200;
@@ -55,6 +56,22 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable {
     }
 
     /**
+     * @notice Pause all functions except `emergencyWithdraw()`.
+     * @dev Restricted to the OWNER role.
+     */
+    function pause() public onlyOwner {
+        _pause();
+    }
+
+    /**
+     * @notice Unpause.
+     * @dev Restricted to the OWNER role.
+     */
+    function unpause() public onlyOwner {
+        _unpause();
+    }
+
+    /**
      * @notice Register a withdrawal request (called by external contract - reliquary)
      * @dev External contract sends tokens to this contract first, then calls registerWithdrawal
      * @param _user Address of user requesting withdrawal
@@ -65,6 +82,7 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable {
     function registerWithdrawal(address _user, uint8 _poolId, uint256 _amount)
         external
         nonReentrant
+        whenNotPaused
         returns (uint256)
     {
         if (_amount == 0) revert ZeroAmount();
@@ -103,7 +121,7 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable {
      * @notice Execute a withdrawal after cooldown has passed
      * @param _withdrawalId ID of withdrawal request
      */
-    function executeWithdrawal(uint256 _withdrawalId) external nonReentrant {
+    function executeWithdrawal(uint256 _withdrawalId) external nonReentrant whenNotPaused {
         WithdrawalRequest storage request = withdrawalRequests[_withdrawalId];
 
         // Validate withdrawal request
@@ -125,7 +143,7 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable {
      * @notice Execute a withdrawal without cooldown but only by the owner
      * @param _withdrawalId ID of withdrawal request
      */
-    function emergencyWithdrawal(uint256 _withdrawalId) external onlyOwner {
+    function emergencyWithdrawal(uint256 _withdrawalId) external onlyOwner nonReentrant {
         WithdrawalRequest storage request = withdrawalRequests[_withdrawalId];
 
         // Validate withdrawal request
@@ -146,7 +164,7 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable {
      * @param _withdrawalId ID of withdrawal request
      * @dev Only the requester can cancel
      */
-    function cancelWithdrawal(uint256 _withdrawalId) external nonReentrant {
+    function cancelWithdrawal(uint256 _withdrawalId) external nonReentrant whenNotPaused {
         WithdrawalRequest storage request = withdrawalRequests[_withdrawalId];
 
         if (request.user == address(0)) revert InvalidWithdrawalId();
