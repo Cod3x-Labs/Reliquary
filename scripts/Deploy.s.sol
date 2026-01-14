@@ -145,7 +145,7 @@ contract Deploy is Script {
 
         if (cooldownPeriod > 0) {
             CooldownWithdrawal cooldownWithdrawal =
-                new CooldownWithdrawal(cooldownPeriod, address(reliquary));
+                new CooldownWithdrawal(uint64(cooldownPeriod), address(reliquary));
             reliquary.setCooldownWithdrawal(address(cooldownWithdrawal));
             cooldownWithdrawal.transferOwnership(multisig);
         }

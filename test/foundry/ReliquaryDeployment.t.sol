@@ -41,7 +41,7 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
     uint256 minMultiplier = 730 days; // 365 days / 2; // from previous deployment
     uint256 plateau = 365 days; // from previous deployment
 
-    uint256 cooldownPeriod = 604800;
+    uint64 cooldownPeriod = 604800;
 
     // int256[] public coeff = [
     //     int256(100e18),
@@ -280,7 +280,7 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
             "Wrong child pending rewards"
         );
         skip(7 days);
-        uint256 withdrawalId = cooldownWithdrawal.getUserWithdrawals(address(this))[0];
+        uint256 withdrawalId = cooldownWithdrawal.getUserPendingWithdrawals(address(this))[0];
         cooldownWithdrawal.executeWithdrawal(withdrawalId);
         console2.log("2. Pending rewards: ", reliquary.pendingReward(relicId));
         console2.log("2. Balance of testToken: ", testToken.balanceOf(address(this)));
@@ -505,19 +505,20 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
 
         skip(7 days);
 
-        uint256 withdrawalId = cooldownWithdrawal.getUserWithdrawals(multipleUsers.mainUser)[0];
+        uint256 withdrawalId =
+            cooldownWithdrawal.getUserPendingWithdrawals(multipleUsers.mainUser)[0];
         vm.prank(multipleUsers.mainUser);
         cooldownWithdrawal.executeWithdrawal(withdrawalId);
 
-        withdrawalId = cooldownWithdrawal.getUserWithdrawals(multipleUsers.user1)[0];
+        withdrawalId = cooldownWithdrawal.getUserPendingWithdrawals(multipleUsers.user1)[0];
         vm.prank(multipleUsers.user1);
         cooldownWithdrawal.executeWithdrawal(withdrawalId);
 
-        withdrawalId = cooldownWithdrawal.getUserWithdrawals(multipleUsers.user2)[0];
+        withdrawalId = cooldownWithdrawal.getUserPendingWithdrawals(multipleUsers.user2)[0];
         vm.prank(multipleUsers.user2);
         cooldownWithdrawal.executeWithdrawal(withdrawalId);
 
-        withdrawalId = cooldownWithdrawal.getUserWithdrawals(multipleUsers.user3)[0];
+        withdrawalId = cooldownWithdrawal.getUserPendingWithdrawals(multipleUsers.user3)[0];
         vm.prank(multipleUsers.user3);
         cooldownWithdrawal.executeWithdrawal(withdrawalId);
 

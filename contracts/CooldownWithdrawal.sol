@@ -18,41 +18,31 @@ import {Pausable} from "lib/openzeppelin-contracts/contracts/utils/Pausable.sol"
 contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pausable {
     using SafeERC20 for IERC20;
 
-    uint256 public constant MAX_PENDING_WITHDRAWALS = 200;
+    uint256 public constant MAX_PENDING_WITHDRAWALS = 500;
 
-    // Cooldown period in seconds
-    uint256 public cooldownPeriod;
+    /// @inheritdoc ICooldownWithdrawal
+    uint64 public cooldownPeriod;
 
-    // Withdrawal request structure
-    struct WithdrawalRequest {
-        address user;
-        IERC20 token;
-        uint256 amount;
-        uint256 readyTime; // Timestamp when withdrawal can be executed
-        uint8 poolId;
-        bool executed;
-    }
-
-    // Mapping: withdrawal ID => WithdrawalRequest
-    mapping(uint256 => WithdrawalRequest) public withdrawalRequests;
-
-    // Counter for withdrawal IDs
+    /// @inheritdoc ICooldownWithdrawal
     uint256 public withdrawalCounter;
 
+    /// @inheritdoc ICooldownWithdrawal
     address public immutable reliquary;
 
+    // Mapping: withdrawal ID => WithdrawalRequest
+    mapping(uint256 => WithdrawalRequest) private withdrawalRequests;
+
     // Mapping: user => array of withdrawal IDs
-    mapping(address => uint256[]) private userWithdrawals;
+    mapping(address => uint256[]) private userPendingWithdrawals;
 
     /**
      * @notice Initialize cooldown contract
      * @param _cooldownPeriod Cooldown period in seconds
      */
-    constructor(uint256 _cooldownPeriod, address _reliquary) Ownable(msg.sender) {
-        if (_cooldownPeriod == 0) revert InvalidCooldown();
+    constructor(uint64 _cooldownPeriod, address _reliquary) Ownable(msg.sender) {
         if (_reliquary == address(0)) revert WrongReliquaryAddress();
-        cooldownPeriod = _cooldownPeriod;
         reliquary = _reliquary;
+        _setCooldownPeriod(_cooldownPeriod);
     }
 
     /**
@@ -71,14 +61,7 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
         _unpause();
     }
 
-    /**
-     * @notice Register a withdrawal request (called by external contract - reliquary)
-     * @dev External contract sends tokens to this contract first, then calls registerWithdrawal
-     * @param _user Address of user requesting withdrawal
-     * @param _poolId Token to withdraw (ERC20)
-     * @param _amount Amount to withdraw
-     * @return withdrawalId ID of the withdrawal request
-     */
+    /// @inheritdoc ICooldownWithdrawal
     function registerWithdrawal(address _user, uint8 _poolId, uint256 _amount)
         external
         nonReentrant
@@ -86,12 +69,12 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
         returns (uint256)
     {
         if (_amount == 0) revert ZeroAmount();
-        if (_user == address(0)) revert InvalidWithdrawalId();
+        if (_user == address(0)) revert InvalidUser();
         if (msg.sender != reliquary) revert OnlyReliquary();
         if (type(uint256).max - withdrawalCounter < 1) {
             revert InvalidWithdrawalCounter();
         }
-        if (userWithdrawals[_user].length >= MAX_PENDING_WITHDRAWALS) {
+        if (userPendingWithdrawals[_user].length >= MAX_PENDING_WITHDRAWALS) {
             revert TooManyPendingWithdrawals(); // Prevent spam
         }
 
@@ -99,28 +82,25 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
         _token.safeTransferFrom(msg.sender, address(this), _amount);
 
         uint256 withdrawalId = withdrawalCounter;
-        uint256 readyTime = block.timestamp + cooldownPeriod;
+        uint64 readyTime = uint64(block.timestamp + cooldownPeriod); // cooldown period limited to 1000 days so not possible to overflow it
 
         WithdrawalRequest storage request = withdrawalRequests[withdrawalId];
         request.user = _user;
-        request.token = _token;
+        request.token = address(_token);
         request.amount = _amount;
         request.readyTime = readyTime;
         request.poolId = _poolId;
         request.executed = false;
 
         // Track withdrawal ID for user
-        userWithdrawals[_user].push(withdrawalId);
+        userPendingWithdrawals[_user].push(withdrawalId);
         withdrawalCounter++;
         emit WithdrawalRegistered(withdrawalId, _user, address(_token), _amount, readyTime);
 
         return withdrawalId;
     }
 
-    /**
-     * @notice Execute a withdrawal after cooldown has passed
-     * @param _withdrawalId ID of withdrawal request
-     */
+    /// @inheritdoc ICooldownWithdrawal
     function executeWithdrawal(uint256 _withdrawalId) external nonReentrant whenNotPaused {
         WithdrawalRequest storage request = withdrawalRequests[_withdrawalId];
 
@@ -134,15 +114,12 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
         _removeWithdrawalId(request.user, _withdrawalId);
 
         // Transfer tokens to user
-        request.token.safeTransfer(request.user, request.amount);
+        IERC20(request.token).safeTransfer(request.user, request.amount);
 
-        emit WithdrawalExecuted(_withdrawalId, request.user, address(request.token), request.amount);
+        emit WithdrawalExecuted(_withdrawalId, request.user, request.token, request.amount);
     }
 
-    /**
-     * @notice Execute a withdrawal without cooldown but only by the owner
-     * @param _withdrawalId ID of withdrawal request
-     */
+    /// @inheritdoc ICooldownWithdrawal
     function emergencyWithdrawal(uint256 _withdrawalId) external onlyOwner nonReentrant {
         WithdrawalRequest storage request = withdrawalRequests[_withdrawalId];
 
@@ -154,16 +131,12 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
         _removeWithdrawalId(request.user, _withdrawalId);
 
         // Transfer tokens to user
-        request.token.safeTransfer(request.user, request.amount);
+        IERC20(request.token).safeTransfer(request.user, request.amount);
 
-        emit WithdrawalExecuted(_withdrawalId, request.user, address(request.token), request.amount);
+        emit WithdrawalExecuted(_withdrawalId, request.user, request.token, request.amount);
     }
 
-    /**
-     * @notice Cancel a withdrawal request before it's executed
-     * @param _withdrawalId ID of withdrawal request
-     * @dev Only the requester can cancel
-     */
+    /// @inheritdoc ICooldownWithdrawal
     function cancelWithdrawal(uint256 _withdrawalId) external nonReentrant whenNotPaused {
         WithdrawalRequest storage request = withdrawalRequests[_withdrawalId];
 
@@ -171,16 +144,13 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
         if (msg.sender != request.user) revert OnlyRequestOwner();
         if (request.executed) revert WithdrawalAlreadyExecuted();
 
-        uint256 balanceBefore = request.token.balanceOf(address(this));
+        uint256 balanceBefore = IERC20(request.token).balanceOf(address(this));
 
         // Creeate new Relic without a cooldown
-        if (request.token.allowance(address(this), reliquary) > 0) {
-            request.token.forceApprove(reliquary, 0);
-        }
-        request.token.forceApprove(reliquary, request.amount);
+        IERC20(request.token).forceApprove(reliquary, request.amount);
         try IReliquary(reliquary)
             .createRelicAndDeposit(request.user, request.poolId, request.amount) {
-            if (balanceBefore - request.amount != request.token.balanceOf(address(this))) {
+            if (balanceBefore - request.amount != IERC20(request.token).balanceOf(address(this))) {
                 revert WrongBalances();
             }
         } catch Error(string memory reason) {
@@ -195,13 +165,13 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
 
     /**
      * @notice Remove a withdrawal ID from a user's pending list.
-     * @dev Uses swap-and-pop to efficiently remove the ID from `userWithdrawals[_user]`.
+     * @dev Uses swap-and-pop to efficiently remove the ID from `userPendingWithdrawals[_user]`.
      * Emits `WithdrawalRemovedFromPending` when an ID is removed.
      * @param _user The owner of the withdrawal IDs array.
      * @param _withdrawalId The withdrawal ID to remove.
      */
     function _removeWithdrawalId(address _user, uint256 _withdrawalId) internal {
-        uint256[] storage ids = userWithdrawals[_user];
+        uint256[] storage ids = userPendingWithdrawals[_user];
         for (uint256 i = 0; i < ids.length; i++) {
             if (ids[i] == _withdrawalId) {
                 ids[i] = ids[ids.length - 1]; // Swap with last
@@ -212,92 +182,63 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
         }
     }
 
-    /**
-     * @notice Update cooldown period (only owner)
-     * @param _newCooldown New cooldown period in seconds
-     */
-    function setCooldownPeriod(uint256 _newCooldown) external onlyOwner {
-        if (_newCooldown == 0) revert InvalidCooldown();
+    /// @inheritdoc ICooldownWithdrawal
+    function setCooldownPeriod(uint64 _newCooldown) external onlyOwner {
+        _setCooldownPeriod(_newCooldown);
+    }
+
+    function _setCooldownPeriod(uint64 _newCooldown) private onlyOwner {
+        if (_newCooldown == 0 || _newCooldown > 1000 days) revert InvalidCooldown();
 
         cooldownPeriod = _newCooldown;
         emit CooldownPeriodUpdated(_newCooldown);
     }
 
-    /**
-     * @notice Check if withdrawal is ready to execute
-     * @param _withdrawalId ID of withdrawal request
-     * @return True if ready, false otherwise
-     */
+    /// @inheritdoc ICooldownWithdrawal
     function isWithdrawalReady(uint256 _withdrawalId) external view returns (bool) {
         WithdrawalRequest memory request = withdrawalRequests[_withdrawalId];
         return block.timestamp >= request.readyTime && !request.executed;
     }
 
-    /**
-     * @notice Get withdrawal details
-     * @param _withdrawalId ID of withdrawal request
-     */
+    /// @inheritdoc ICooldownWithdrawal
     function getWithdrawalDetails(uint256 _withdrawalId)
         external
         view
-        returns (
-            address user,
-            address token,
-            uint256 amount,
-            uint256 readyTime,
-            uint8 poolId,
-            bool executed
-        )
+        returns (WithdrawalRequest memory)
     {
-        WithdrawalRequest memory request = withdrawalRequests[_withdrawalId];
-        return (
-            request.user,
-            address(request.token),
-            request.amount,
-            request.readyTime,
-            request.poolId,
-            request.executed
-        );
+        return withdrawalRequests[_withdrawalId];
     }
 
-    /**
-     * @notice Get time remaining until withdrawal is ready
-     * @param _withdrawalId ID of withdrawal request
-     * @return secondsLeft Seconds until withdrawal can be executed (0 if ready)
-     */
+    /// @inheritdoc ICooldownWithdrawal
     function getTimeRemaining(uint256 _withdrawalId) external view returns (uint256) {
         WithdrawalRequest memory request = withdrawalRequests[_withdrawalId];
 
         if (block.timestamp >= request.readyTime) {
             return 0;
         }
-
         return request.readyTime - block.timestamp;
     }
 
-    /**
-     * @notice Get all withdrawal IDs for a user
-     * @param _user User address
-     * @return Array of withdrawal IDs
-     */
-    function getUserWithdrawals(address _user) external view returns (uint256[] memory) {
-        return userWithdrawals[_user];
+    /// @inheritdoc ICooldownWithdrawal
+    function getUserPendingWithdrawals(address _user) external view returns (uint256[] memory) {
+        return userPendingWithdrawals[_user];
     }
 
-    /**
-     * @notice Get count of pending withdrawals for user
-     * @param _user User address
-     * @return Count of pending (not executed) withdrawals
-     */
-    function getPendingWithdrawalCount(address _user) external view returns (uint256) {
-        uint256[] memory withdrawalIds = userWithdrawals[_user];
-        uint256 pendingCount = 0;
+    /// @inheritdoc ICooldownWithdrawal
+    function getUserPendingWithdrawalsLength(address _user) external view returns (uint256) {
+        return userPendingWithdrawals[_user].length;
+    }
 
-        for (uint256 i = 0; i < withdrawalIds.length; i++) {
-            if (!withdrawalRequests[withdrawalIds[i]].executed) {
-                pendingCount++;
-            }
+    /// @inheritdoc ICooldownWithdrawal
+    function getUserWithdrawalsDetails(address _user)
+        external
+        view
+        returns (WithdrawalRequest[] memory userWithdrawalsDetails)
+    {
+        uint256[] memory userWithdrawalIds = userPendingWithdrawals[_user];
+        userWithdrawalsDetails = new WithdrawalRequest[](userWithdrawalIds.length);
+        for (uint256 idx = 0; idx < userWithdrawalIds.length; idx++) {
+            userWithdrawalsDetails[idx] = withdrawalRequests[userWithdrawalIds[idx]];
         }
-        return pendingCount;
     }
 }

@@ -6,8 +6,18 @@ pragma solidity ^0.8.20;
  * @dev Interface for the CooldownWithdrawal contract that delays withdrawals by a cooldown period
  */
 interface ICooldownWithdrawal {
-    // ============ Events ============
+    // ============ Struct ============
+    // Withdrawal request structure
+    struct WithdrawalRequest {
+        address user;
+        address token;
+        uint256 amount;
+        uint64 readyTime; // Timestamp when withdrawal can be executed
+        uint8 poolId;
+        bool executed;
+    }
 
+    // ============ Events ============
     event WithdrawalRegistered(
         uint256 indexed withdrawalId,
         address indexed user,
@@ -22,7 +32,7 @@ interface ICooldownWithdrawal {
 
     event WithdrawalCancelled(uint256 indexed withdrawalId, address indexed user);
 
-    event CooldownPeriodUpdated(uint256 newCooldown);
+    event CooldownPeriodUpdated(uint64 newCooldown);
 
     event WithdrawalRemovedFromPending(uint256 indexed withdrawalId, address indexed user);
 
@@ -35,6 +45,7 @@ interface ICooldownWithdrawal {
     error WithdrawalNotReady();
     error WithdrawalAlreadyExecuted();
     error ReliquaryOperationFailed(string);
+    error InvalidUser();
     error InvalidWithdrawalId();
     error InvalidWithdrawalCounter();
     error TooManyPendingWithdrawals();
@@ -45,10 +56,22 @@ interface ICooldownWithdrawal {
 
     // ============ State Variables ============
 
-    function cooldownPeriod() external view returns (uint256);
+    /**
+     * @notice Current cooldown period in seconds
+     * @return cooldown period value
+     */
+    function cooldownPeriod() external view returns (uint64);
 
+    /**
+     * @notice Total number of withdrawal requests created (counter)
+     * @return current withdrawal counter
+     */
     function withdrawalCounter() external view returns (uint256);
 
+    /**
+     * @notice Address of the associated Reliquary contract
+     * @return reliquary contract address
+     */
     function reliquary() external view returns (address);
 
     // ============ Core Functions ============
@@ -82,7 +105,7 @@ interface ICooldownWithdrawal {
      * @notice Update cooldown period (only owner)
      * @param _newCooldown New cooldown period in seconds
      */
-    function setCooldownPeriod(uint256 _newCooldown) external;
+    function setCooldownPeriod(uint64 _newCooldown) external;
 
     /**
      * @notice Emergency withdrawal by owner
@@ -106,14 +129,7 @@ interface ICooldownWithdrawal {
     function getWithdrawalDetails(uint256 _withdrawalId)
         external
         view
-        returns (
-            address user,
-            address token,
-            uint256 amount,
-            uint256 readyTime,
-            uint8 poolId,
-            bool executed
-        );
+        returns (WithdrawalRequest memory);
 
     /**
      * @notice Get time remaining until withdrawal is ready
@@ -127,12 +143,22 @@ interface ICooldownWithdrawal {
      * @param _user User address
      * @return Array of withdrawal IDs
      */
-    function getUserWithdrawals(address _user) external view returns (uint256[] memory);
+    function getUserPendingWithdrawals(address _user) external view returns (uint256[] memory);
 
     /**
      * @notice Get count of pending withdrawals for user
      * @param _user User address
      * @return Count of pending (not executed) withdrawals
      */
-    function getPendingWithdrawalCount(address _user) external view returns (uint256);
+    function getUserPendingWithdrawalsLength(address _user) external view returns (uint256);
+
+    /**
+     * @notice Get full `WithdrawalRequest` structs for all pending withdrawals of a user
+     * @param _user User address
+     * @return userWithdrawalsDetails Array of `WithdrawalRequest` structs for the user
+     */
+    function getUserWithdrawalsDetails(address _user)
+        external
+        view
+        returns (WithdrawalRequest[] memory userWithdrawalsDetails);
 }

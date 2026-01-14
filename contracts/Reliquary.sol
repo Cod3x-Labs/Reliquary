@@ -716,9 +716,6 @@ contract Reliquary is
         if (cooldownWithdrawal == address(0)) {
             poolToken.safeTransfer(msg.sender, _amount);
         } else {
-            if (poolToken.allowance(address(this), cooldownWithdrawal) > 0) {
-                poolToken.forceApprove(cooldownWithdrawal, 0);
-            }
             poolToken.forceApprove(cooldownWithdrawal, _amount);
             CooldownWithdrawal(cooldownWithdrawal).registerWithdrawal(msg.sender, poolId_, _amount);
         }
