@@ -1378,4 +1378,314 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
             assertFalse(details[i].executed);
         }
     }
+
+    /// @notice Test successfully executes all matured withdrawals
+    function test_executeAllMaturedWithdrawals_Success_AllMatured() external {
+        // user1 creates 3 withdrawals
+        vm.startPrank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 6, user1RelicId, user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 4, user1RelicId, user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 2, user1RelicId, user1);
+        vm.stopPrank();
+
+        uint256[] memory ids = cooldownContract.getUserPendingWithdrawals(user1);
+        assertEq(ids.length, 3, "user1 should have 3 withdrawals");
+
+        // Verify all are not ready yet
+        for (uint256 i = 0; i < ids.length; i++) {
+            assertFalse(
+                cooldownContract.isWithdrawalReady(ids[i]),
+                "Withdrawal should not be ready before cooldown"
+            );
+        }
+
+        // Warp time so all are matured
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+
+        // Verify all are now ready
+        for (uint256 i = 0; i < ids.length; i++) {
+            assertTrue(
+                cooldownContract.isWithdrawalReady(ids[i]),
+                "Withdrawal should be ready after cooldown"
+            );
+        }
+
+        uint256 userBalanceBefore = token.balanceOf(user1);
+        uint256 contractBalanceBefore = token.balanceOf(address(cooldownContract));
+        uint256 expectedTotal = 11 * WITHDRAWAL_AMOUNT / 12;
+
+        // Execute all matured
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+
+        uint256 userBalanceAfter = token.balanceOf(user1);
+        uint256 contractBalanceAfter = token.balanceOf(address(cooldownContract));
+
+        // Verify all 3 executed
+        assertEq(
+            userBalanceAfter - userBalanceBefore,
+            expectedTotal,
+            "Should receive sum of all withdrawals"
+        );
+        assertEq(
+            contractBalanceBefore - contractBalanceAfter,
+            expectedTotal,
+            "Contract should send all tokens"
+        );
+        assertEq(
+            cooldownContract.getUserPendingWithdrawalsLength(user1),
+            0,
+            "All withdrawals should be executed"
+        );
+
+        // Verify each is marked executed
+        for (uint256 i = 0; i < ids.length; i++) {
+            CooldownWithdrawal.WithdrawalRequest memory req =
+                cooldownContract.getWithdrawalDetails(ids[i]);
+            assertTrue(req.executed);
+        }
+    }
+
+    /// @notice Test skips non-matured withdrawals
+    function test_executeAllMaturedWithdrawals_SkipsNonMatured() external {
+        // user1 creates first withdrawal
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 4, user1RelicId, user1);
+        uint256 id1 = cooldownContract.getUserPendingWithdrawals(user1)[0];
+
+        // Warp time so first is matured
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+
+        // user1 creates second withdrawal (NOT matured yet)
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 2, user1RelicId, user1);
+        uint256 id2 = cooldownContract.getUserPendingWithdrawals(user1)[1];
+
+        assertEq(cooldownContract.getUserPendingWithdrawalsLength(user1), 2);
+
+        // First should be ready, second should not
+        assertTrue(cooldownContract.isWithdrawalReady(id1), "First should be ready");
+        assertFalse(cooldownContract.isWithdrawalReady(id2), "Second should NOT be ready");
+
+        uint256 userBalanceBefore = token.balanceOf(user1);
+
+        // Execute all matured (should only execute id1, skip id2)
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+
+        uint256 userBalanceAfter = token.balanceOf(user1);
+
+        // Should receive only the first withdrawal
+        assertEq(
+            userBalanceAfter - userBalanceBefore,
+            WITHDRAWAL_AMOUNT / 4,
+            "Should only receive matured withdrawal"
+        );
+
+        // id1 should be executed, id2 should still be pending
+        CooldownWithdrawal.WithdrawalRequest memory req1 =
+            cooldownContract.getWithdrawalDetails(id1);
+        CooldownWithdrawal.WithdrawalRequest memory req2 =
+            cooldownContract.getWithdrawalDetails(id2);
+
+        assertTrue(req1.executed, "First withdrawal should be executed");
+        assertFalse(req2.executed, "Second withdrawal should NOT be executed");
+
+        assertEq(
+            cooldownContract.getUserPendingWithdrawalsLength(user1),
+            1,
+            "One withdrawal should remain pending"
+        );
+
+        // Now warp time and execute the second one
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+        assertTrue(cooldownContract.isWithdrawalReady(id2), "Second should now be ready");
+
+        uint256 userBalanceBefore2 = token.balanceOf(user1);
+
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+
+        assertEq(
+            token.balanceOf(user1) - userBalanceBefore2,
+            WITHDRAWAL_AMOUNT / 2,
+            "Should now receive second withdrawal"
+        );
+        assertEq(
+            cooldownContract.getUserPendingWithdrawalsLength(user1),
+            0,
+            "All withdrawals should be executed"
+        );
+    }
+
+    /// @notice Test all withdrawals are non-matured - nothing executes
+    function test_executeAllMaturedWithdrawals_AllNonMatured() external {
+        // user1 creates 3 withdrawals but doesn't wait
+        vm.startPrank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 3, user1RelicId, user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 3, user1RelicId, user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 3, user1RelicId, user1);
+        vm.stopPrank();
+
+        assertEq(cooldownContract.getUserPendingWithdrawalsLength(user1), 3);
+
+        uint256 userBalanceBefore = token.balanceOf(user1);
+
+        // Try to execute all (none are ready)
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+
+        // No tokens transferred
+        assertEq(token.balanceOf(user1), userBalanceBefore, "User should not receive any tokens");
+
+        // All still pending
+        assertEq(
+            cooldownContract.getUserPendingWithdrawalsLength(user1),
+            3,
+            "All withdrawals should still be pending"
+        );
+    }
+
+    /// @notice Test isolation: only affects caller's withdrawals
+    function test_executeAllMaturedWithdrawals_OnlyCallerWithdrawals() external {
+        // user1: 2 withdrawals
+        vm.startPrank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 2, user1RelicId, user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 2, user1RelicId, user1);
+        vm.stopPrank();
+
+        // user2: 3 withdrawals
+        vm.startPrank(user2);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 3, user2RelicId, user2);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 3, user2RelicId, user2);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 3, user2RelicId, user2);
+        vm.stopPrank();
+
+        uint256[] memory user1Ids = cooldownContract.getUserPendingWithdrawals(user1);
+        uint256[] memory user2Ids = cooldownContract.getUserPendingWithdrawals(user2);
+
+        assertEq(user1Ids.length, 2);
+        assertEq(user2Ids.length, 3);
+
+        // Warp so all are matured
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+
+        uint256 user1BalanceBefore = token.balanceOf(user1);
+        uint256 user2BalanceBefore = token.balanceOf(user2);
+
+        // user1 executes their withdrawals
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+
+        // user1 should receive their tokens
+        assertEq(
+            token.balanceOf(user1) - user1BalanceBefore,
+            WITHDRAWAL_AMOUNT,
+            "user1 should receive their withdrawals"
+        );
+        assertEq(cooldownContract.getUserPendingWithdrawalsLength(user1), 0);
+
+        // user2 should NOT be affected
+        assertEq(token.balanceOf(user2), user2BalanceBefore, "user2 balance should not change");
+        assertEq(
+            cooldownContract.getUserPendingWithdrawalsLength(user2),
+            3,
+            "user2 withdrawals should still be pending"
+        );
+
+        // Verify user2 withdrawals are still not executed
+        for (uint256 i = 0; i < user2Ids.length; i++) {
+            CooldownWithdrawal.WithdrawalRequest memory req =
+                cooldownContract.getWithdrawalDetails(user2Ids[i]);
+            assertFalse(req.executed, "user2 withdrawals should NOT be executed");
+        }
+    }
+
+    /// @notice Test mix of matured and already executed withdrawals
+    function test_executeAllMaturedWithdrawals_MixOfMaturedAndExecuted() external {
+        // user1 creates 3 withdrawals
+        vm.startPrank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 3, user1RelicId, user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 3, user1RelicId, user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 3, user1RelicId, user1);
+        vm.stopPrank();
+
+        uint256[] memory ids = cooldownContract.getUserPendingWithdrawals(user1);
+
+        // Warp time
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+
+        // Manually execute first withdrawal
+        vm.prank(user1);
+        cooldownContract.executeWithdrawal(ids[0]);
+
+        assertEq(cooldownContract.getUserPendingWithdrawalsLength(user1), 2);
+
+        uint256 userBalanceBefore = token.balanceOf(user1);
+
+        // Execute all matured (should skip already executed, execute remaining 2)
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+
+        // Should receive 2 withdrawals (not 3)
+        assertEq(
+            token.balanceOf(user1) - userBalanceBefore,
+            2 * WITHDRAWAL_AMOUNT / 3,
+            "Should only execute remaining withdrawals"
+        );
+        assertEq(cooldownContract.getUserPendingWithdrawalsLength(user1), 0);
+    }
+
+    /// @notice Test sequential execution: some mature at different times
+    function test_executeAllMaturedWithdrawals_SequentialMaturity() external {
+        // Create 3 withdrawals with time gaps
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 5, user1RelicId, user1);
+        uint256 id1 = cooldownContract.getUserPendingWithdrawals(user1)[0];
+
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(user1);
+        reliquary.withdraw(200e18, user1RelicId, user1);
+        uint256 id2 = cooldownContract.getUserPendingWithdrawals(user1)[1];
+
+        vm.warp(block.timestamp + 1 days);
+
+        vm.prank(user1);
+        reliquary.withdraw(WITHDRAWAL_AMOUNT / 2, user1RelicId, user1);
+        uint256 id3 = cooldownContract.getUserPendingWithdrawals(user1)[2];
+
+        // Warp to when only first is matured (created + 3 days)
+        vm.warp(block.timestamp + 1 days);
+
+        assertTrue(cooldownContract.isWithdrawalReady(id1));
+        assertFalse(cooldownContract.isWithdrawalReady(id2));
+        assertFalse(cooldownContract.isWithdrawalReady(id3));
+
+        // Execute - should only get first
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+        assertEq(cooldownContract.getUserPendingWithdrawalsLength(user1), 2);
+
+        // Warp to when first and second are matured
+        vm.warp(block.timestamp + 1 days);
+
+        assertTrue(cooldownContract.isWithdrawalReady(id2));
+        assertFalse(cooldownContract.isWithdrawalReady(id3));
+
+        // Execute - should only get second
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+        assertEq(cooldownContract.getUserPendingWithdrawalsLength(user1), 1);
+
+        // Warp to when all are matured
+        vm.warp(block.timestamp + 1 days);
+
+        assertTrue(cooldownContract.isWithdrawalReady(id3));
+
+        // Execute - should get third
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+        assertEq(cooldownContract.getUserPendingWithdrawalsLength(user1), 0);
+    }
 }

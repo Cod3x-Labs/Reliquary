@@ -19,6 +19,7 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
     using SafeERC20 for IERC20;
 
     uint256 public constant MAX_PENDING_WITHDRAWALS = 500;
+    uint256 public constant MAX_COOLDOWN = 1000 days;
 
     /// @inheritdoc ICooldownWithdrawal
     uint64 public cooldownPeriod;
@@ -102,6 +103,10 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
 
     /// @inheritdoc ICooldownWithdrawal
     function executeWithdrawal(uint256 _withdrawalId) external nonReentrant whenNotPaused {
+        _executeWithdrawal(_withdrawalId);
+    }
+
+    function _executeWithdrawal(uint256 _withdrawalId) internal {
         WithdrawalRequest storage request = withdrawalRequests[_withdrawalId];
 
         // Validate withdrawal request
@@ -163,6 +168,15 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
         emit WithdrawalCancelled(_withdrawalId, request.user);
     }
 
+    function executeAllMaturedWithdrawals() external nonReentrant whenNotPaused {
+        uint256[] memory userWithdrawalIds = userPendingWithdrawals[msg.sender];
+        for (uint256 idx = 0; idx < userWithdrawalIds.length; idx++) {
+            if (isWithdrawalReady(userWithdrawalIds[idx])) {
+                _executeWithdrawal(userWithdrawalIds[idx]);
+            }
+        }
+    }
+
     /**
      * @notice Remove a withdrawal ID from a user's pending list.
      * @dev Uses swap-and-pop to efficiently remove the ID from `userPendingWithdrawals[_user]`.
@@ -187,15 +201,15 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
         _setCooldownPeriod(_newCooldown);
     }
 
-    function _setCooldownPeriod(uint64 _newCooldown) private onlyOwner {
-        if (_newCooldown == 0 || _newCooldown > 1000 days) revert InvalidCooldown();
+    function _setCooldownPeriod(uint64 _newCooldown) private {
+        if (_newCooldown == 0 || _newCooldown > MAX_COOLDOWN) revert InvalidCooldown();
 
         cooldownPeriod = _newCooldown;
         emit CooldownPeriodUpdated(_newCooldown);
     }
 
     /// @inheritdoc ICooldownWithdrawal
-    function isWithdrawalReady(uint256 _withdrawalId) external view returns (bool) {
+    function isWithdrawalReady(uint256 _withdrawalId) public view returns (bool) {
         WithdrawalRequest memory request = withdrawalRequests[_withdrawalId];
         return block.timestamp >= request.readyTime && !request.executed;
     }
