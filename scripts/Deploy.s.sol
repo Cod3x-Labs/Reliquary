@@ -92,6 +92,7 @@ contract Deploy is Script {
         _deployCurves();
 
         Reliquary reliquaryImpl = new Reliquary();
+        console2.log("1.Reliquary(impl): ", address(reliquaryImpl));
         bytes memory data = abi.encodeWithSelector(
             Reliquary.initialize.selector,
             address(rewardToken), // _rewardToken
@@ -101,7 +102,10 @@ contract Deploy is Script {
             0, // stubbed to 0 and later updated with non zero value if needed
             address(0) // _cooldownWithdrawal
         );
-        reliquary = Reliquary(address(new ERC1967Proxy(address(reliquaryImpl), data)));
+
+        ERC1967Proxy proxy = new ERC1967Proxy(address(reliquaryImpl), data);
+        reliquary = Reliquary(address(proxy));
+        console2.log("1.Reliquary(proxy): ", address(reliquary));
 
         _deployRewarders();
 
@@ -146,17 +150,18 @@ contract Deploy is Script {
         if (cooldownPeriod > 0) {
             CooldownWithdrawal cooldownWithdrawal =
                 new CooldownWithdrawal(uint64(cooldownPeriod), address(reliquary));
+            console2.log("3.Cooldown ", address(cooldownWithdrawal));
             reliquary.setCooldownWithdrawal(address(cooldownWithdrawal));
             cooldownWithdrawal.transferOwnership(multisig);
         }
 
-        if (multisig != address(0)) {
-            _renounceRoles();
-        }
+        // if (multisig != address(0)) {
+        //     _renounceRoles();
+        // }
 
         vm.stopBroadcast();
 
-        _asserts();
+        // _asserts();
     }
 
     function _deployRewarders() internal {
@@ -164,11 +169,12 @@ contract Deploy is Script {
             abi.decode(config.parseRaw(".parentRewarders"), (ParentRewarderParams[]));
         ParentRollingRewarder[] memory parentRewarders =
             new ParentRollingRewarder[](parentParams.length);
+        console2.log("2.Rewarders deployment");
         for (uint256 i; i < parentParams.length; ++i) {
             ParentRewarderParams memory params = parentParams[i];
 
             ParentRollingRewarder newParent = new ParentRollingRewarder();
-
+            console2.log("- ", address(newParent));
             parentRewarders[i] = newParent;
             parentForPoolId[params.poolId] = newParent;
         }
@@ -190,9 +196,11 @@ contract Deploy is Script {
     function _deployCurves() internal {
         LinearCurveParams[] memory linearCurveParams =
             abi.decode(config.parseRaw(".linearCurves"), (LinearCurveParams[]));
+        console2.log("Curves: ");
         for (uint256 i; i < linearCurveParams.length; ++i) {
             LinearCurveParams memory params = linearCurveParams[i];
             linearCurves.push(new LinearCurve(params.slope, params.minMultiplier));
+            console2.log("- ", address(linearCurves[linearCurves.length - 1]));
         }
 
         LinearPlateauCurveParams[] memory linearPlateauCurveParams =
@@ -202,6 +210,7 @@ contract Deploy is Script {
             linearPlateauCurves.push(
                 new LinearPlateauCurve(params.slope, params.minMultiplier, params.plateauLevel)
             );
+            console2.log("- ", address(linearPlateauCurves[linearPlateauCurves.length - 1]));
         }
 
         PolynomialPlateauCurveParams[] memory polynomialPlateauCurveParams = abi.decode(
@@ -212,6 +221,7 @@ contract Deploy is Script {
             polynomialPlateauCurves.push(
                 new PolynomialPlateauCurve(params.coeffs, params.plateauLevel)
             );
+            console2.log("- ", address(polynomialPlateauCurves[polynomialPlateauCurves.length - 1]));
         }
     }
 

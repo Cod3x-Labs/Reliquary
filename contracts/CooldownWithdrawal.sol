@@ -106,7 +106,7 @@ contract CooldownWithdrawal is ReentrancyGuard, ICooldownWithdrawal, Ownable, Pa
         _executeWithdrawal(_withdrawalId);
     }
 
-    function _executeWithdrawal(uint256 _withdrawalId) internal {
+    function _executeWithdrawal(uint256 _withdrawalId) private {
         WithdrawalRequest storage request = withdrawalRequests[_withdrawalId];
 
         // Validate withdrawal request

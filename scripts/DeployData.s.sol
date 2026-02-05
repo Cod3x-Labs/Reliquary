@@ -5,11 +5,12 @@ import "forge-std/Script.sol";
 import "contracts/ReliquaryUIDataProvider.sol";
 
 contract DeployReliquaryUIDataProvider is Script {
+    address constant RELIQUARY_ADDRESS = 0x32E570927836251160C40361D5e7b3c38c4e7adf;
+
     function run() external {
         vm.startBroadcast();
 
-        ReliquaryUIDataProvider dataProvider =
-            new ReliquaryUIDataProvider(0x1Cf49e880fc64C0B98BeE0Ecac89aA79D29335EA);
+        ReliquaryUIDataProvider dataProvider = new ReliquaryUIDataProvider(RELIQUARY_ADDRESS);
 
         vm.stopBroadcast();
 

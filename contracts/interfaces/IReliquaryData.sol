@@ -148,4 +148,10 @@ interface IReliquaryData is IERC721 {
     function totalAllocPoint() external view returns (uint256);
 
     function tokenOfOwnerByIndex(address _owner, uint256 _index) external view returns (uint256);
+
+    function minStakingAmount() external view returns (uint256);
+
+    function cooldownWithdrawal() external view returns (address);
+
+    function paused() external view returns (bool);
 }
