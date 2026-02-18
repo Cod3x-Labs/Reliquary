@@ -19,7 +19,7 @@ rpc_endpoints = { fantom = "${FANTOM_RPC}", optimism = "${OPTIMISM_RPC}", "base"
 #initial_balance = '0xffffffffffffffffffffffff'
 
 ffi = false
-fs_permissions = [{ access = "read", path = "./"}]
+fs_permissions = [{ access = "read-write", path = "./"}]
 #invariant_fail_on_revert = true
 
 [profile.test.optimizer_details.yulDetails]

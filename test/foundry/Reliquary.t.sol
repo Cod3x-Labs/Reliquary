@@ -344,13 +344,13 @@ contract ReliquaryTest is ERC721Holder, Test {
     }
 
     function testMinStakingDeposit(uint256 amount) public {
-        amount = bound(amount, 1, 6000e18);
-        uint256 id = reliquary.createRelicAndDeposit(address(this), 0, 1000);
+        amount = bound(amount, 2, 6000e18);
+        uint256 id = reliquary.createRelicAndDeposit(address(this), 0, 1);
         reliquary.setMinStakingAmount(amount);
-        if (amount > 1) {
-            vm.expectRevert(IReliquary.Reliquary__WRONG_INPUT.selector);
-            reliquary.deposit(amount - 1, id, address(this));
-        }
+
+        vm.expectRevert(IReliquary.Reliquary__WRONG_INPUT.selector);
+        reliquary.deposit(amount - 2, id, address(this));
+
         reliquary.deposit(amount, id, address(this));
     }
 

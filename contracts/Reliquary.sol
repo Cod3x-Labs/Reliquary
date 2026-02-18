@@ -694,7 +694,10 @@ contract Reliquary is
      * @param _relicId The NFT ID of the position on which the deposit is to be made.
      */
     function _deposit(uint256 _amount, uint256 _relicId, address _harvestTo) internal {
-        if (_amount == 0 || _amount < minStakingAmount) revert Reliquary__WRONG_INPUT();
+        PositionInfo memory position = positionForId[_relicId];
+        if (_amount == 0 || position.amount + _amount < minStakingAmount) {
+            revert Reliquary__WRONG_INPUT();
+        }
 
         uint8 poolId_ = _updatePosition(_amount, _relicId, Kind.DEPOSIT, _harvestTo);
 

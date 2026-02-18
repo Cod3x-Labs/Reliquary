@@ -71,6 +71,13 @@ contract Deploy is Script {
     PolynomialPlateauCurve[] polynomialPlateauCurves;
     address depositHelper4626;
 
+    // Tracked addresses for JSON output
+    address reliquaryImplAddr;
+    address cooldownWithdrawalAddr;
+    address[] nftDescriptorAddrs;
+    address[] parentRewarderAddrs;
+    address[] childRewarderAddrs;
+
     function run() external {
         config = vm.readFile("scripts/deploy_conf.json");
         string memory name = config.readString(".name");
@@ -92,6 +99,7 @@ contract Deploy is Script {
         _deployCurves();
 
         Reliquary reliquaryImpl = new Reliquary();
+        reliquaryImplAddr = address(reliquaryImpl);
         console2.log("1.Reliquary(impl): ", address(reliquaryImpl));
         bytes memory data = abi.encodeWithSelector(
             Reliquary.initialize.selector,
@@ -127,6 +135,7 @@ contract Deploy is Script {
 
             _deployHelpers(pool.tokenType);
             address nftDescriptor = address(new NFTDescriptor(address(reliquary)));
+            nftDescriptorAddrs.push(nftDescriptor);
 
             ERC20(pool.poolToken).approve(address(reliquary), 1); // approve 1 wei to bootstrap the pool
             reliquary.addPool(
@@ -150,6 +159,7 @@ contract Deploy is Script {
         if (cooldownPeriod > 0) {
             CooldownWithdrawal cooldownWithdrawal =
                 new CooldownWithdrawal(uint64(cooldownPeriod), address(reliquary));
+            cooldownWithdrawalAddr = address(cooldownWithdrawal);
             console2.log("3.Cooldown ", address(cooldownWithdrawal));
             reliquary.setCooldownWithdrawal(address(cooldownWithdrawal));
             cooldownWithdrawal.transferOwnership(multisig);
@@ -160,6 +170,8 @@ contract Deploy is Script {
         // }
 
         vm.stopBroadcast();
+
+        _writeDeployment();
 
         // _asserts();
     }
@@ -176,6 +188,7 @@ contract Deploy is Script {
             ParentRollingRewarder newParent = new ParentRollingRewarder();
             console2.log("- ", address(newParent));
             parentRewarders[i] = newParent;
+            parentRewarderAddrs.push(address(newParent));
             parentForPoolId[params.poolId] = newParent;
         }
     }
@@ -189,7 +202,8 @@ contract Deploy is Script {
 
         for (uint256 i; i < poolCount; ++i) {
             ParentRollingRewarder parent = ParentRollingRewarder(parentForPoolId[i]);
-            parent.createChild(children[i].rewarderToken);
+            address child = parent.createChild(children[i].rewarderToken);
+            childRewarderAddrs.push(child);
         }
     }
 
@@ -259,6 +273,46 @@ contract Deploy is Script {
                 }
             }
         }
+    }
+
+    function _writeDeployment() internal {
+        string memory obj = "deployment";
+
+        vm.serializeAddress(obj, "reliquaryImpl", reliquaryImplAddr);
+        vm.serializeAddress(obj, "reliquaryProxy", address(reliquary));
+        vm.serializeAddress(obj, "cooldownWithdrawal", cooldownWithdrawalAddr);
+        vm.serializeAddress(obj, "depositHelper4626", depositHelper4626);
+
+        // Curves
+        address[] memory lc = new address[](linearCurves.length);
+        for (uint256 i; i < linearCurves.length; i++) {
+            lc[i] = address(linearCurves[i]);
+        }
+        vm.serializeAddress(obj, "linearCurves", lc);
+
+        address[] memory lpc = new address[](linearPlateauCurves.length);
+        for (uint256 i; i < linearPlateauCurves.length; i++) {
+            lpc[i] = address(linearPlateauCurves[i]);
+        }
+        vm.serializeAddress(obj, "linearPlateauCurves", lpc);
+
+        address[] memory ppc = new address[](polynomialPlateauCurves.length);
+        for (uint256 i; i < polynomialPlateauCurves.length; i++) {
+            ppc[i] = address(polynomialPlateauCurves[i]);
+        }
+        vm.serializeAddress(obj, "polynomialPlateauCurves", ppc);
+
+        // Rewarders
+        vm.serializeAddress(obj, "parentRewarders", parentRewarderAddrs);
+        vm.serializeAddress(obj, "childRewarders", childRewarderAddrs);
+
+        // NFT descriptors — last call captures the full JSON
+        string memory finalJson = vm.serializeAddress(obj, "nftDescriptors", nftDescriptorAddrs);
+
+        string memory outputPath =
+            string.concat("deployments/", vm.toString(block.chainid), "_deployment.json");
+        vm.writeJson(finalJson, outputPath);
+        console2.log("Deployment written to:", outputPath);
     }
 
     function _asserts() internal view {
