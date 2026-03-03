@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.24;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
@@ -11,11 +11,16 @@ import "contracts/curves/LinearPlateauCurve.sol";
 import "openzeppelin-contracts/contracts/token/ERC721/utils/ERC721Holder.sol";
 import "contracts/curves/PolynomialPlateauCurve.sol";
 import "./mocks/ERC20Mock.sol";
+import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ERC1967Utils} from "lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {ReliquaryV2} from "test/foundry/mocks/ReliquaryV2.sol";
+import {IERC1967} from "openzeppelin-contracts/contracts/interfaces/IERC1967.sol";
 
 contract ReliquaryTest is ERC721Holder, Test {
     using Strings for address;
     using Strings for uint256;
 
+    Reliquary reliquaryImpl;
     Reliquary reliquary;
     LinearCurve linearCurve;
     LinearPlateauCurve linearPlateauCurve;
@@ -29,7 +34,8 @@ contract ReliquaryTest is ERC721Holder, Test {
     uint256 slope = 100; // Increase of multiplier every second
     uint256 minMultiplier = 365 days * 100; // Arbitrary (but should be coherent with slope)
     uint256 plateau = 10 days;
-    int256[] public coeff = [int256(100e18), int256(1e18), int256(5e15), int256(-1e13), int256(5e9)];
+    int256[] public coeff =
+        [int256(100e18), int256(1e18), int256(5e15), int256(-1e13), int256(5e9)];
 
     function setUp() public {
         int256[] memory coeffDynamic = new int256[](5);
@@ -38,7 +44,27 @@ contract ReliquaryTest is ERC721Holder, Test {
         }
 
         oath = new ERC20Mock(18);
-        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
+        // Encode initialization call with ALL parameters
+        bytes memory data = abi.encodeWithSelector(
+            Reliquary.initialize.selector,
+            address(oath), // _rewardToken
+            emissionRate, // _emissionRate
+            "Reliquary Deposit", // _name
+            "RELIC", // _symbol
+            uint256(0), // _minStakingAmount
+            address(0)
+        );
+
+        // Deploy implementation
+        reliquaryImpl = new Reliquary();
+        // Deploy proxy with encoded initialization - initializer runs here
+        ERC1967Proxy proxy = new ERC1967Proxy(address(reliquaryImpl), data);
+        address implll =
+            address(uint160(uint256(vm.load(address(proxy), ERC1967Utils.IMPLEMENTATION_SLOT))));
+        console2.log("Implementation: ", implll);
+        // address implll = ERC1967Utils.getImplementation();
+        // Cast proxy to contract interface (NO second initialize call)
+        reliquary = Reliquary(address(proxy));
         linearPlateauCurve = new LinearPlateauCurve(slope, minMultiplier, plateau);
         linearCurve = new LinearCurve(slope, minMultiplier);
         polynomialPlateauCurve = new PolynomialPlateauCurve(coeffDynamic, 850);
@@ -139,8 +165,8 @@ contract ReliquaryTest is ERC721Holder, Test {
 
     function testRevertOnWithdrawUnauthorized() public {
         uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, 1);
+        vm.startPrank(address(1));
         vm.expectRevert(IReliquary.Reliquary__NOT_APPROVED_OR_OWNER.selector);
-        vm.prank(address(1));
         reliquary.withdraw(1, relicId, address(0));
     }
 
@@ -173,21 +199,6 @@ contract ReliquaryTest is ERC721Holder, Test {
         reliquary.update(relicId, address(this));
     }
 
-    function testEmergencyWithdraw(uint256 amount) public {
-        amount = bound(amount, 1, testToken.balanceOf(address(this)));
-        uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, amount);
-        vm.expectEmit(true, true, true, true);
-        emit ReliquaryEvents.EmergencyWithdraw(0, amount, address(this), relicId);
-        reliquary.emergencyWithdraw(relicId);
-    }
-
-    function testRevertOnEmergencyWithdrawNotOwner() public {
-        uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, 1);
-        vm.expectRevert(IReliquary.Reliquary__NOT_OWNER.selector);
-        vm.prank(address(1));
-        reliquary.emergencyWithdraw(relicId);
-    }
-
     function testSplit(uint256 depositAmount, uint256 splitAmount) public {
         depositAmount = bound(depositAmount, 1, testToken.balanceOf(address(this)));
         splitAmount = bound(splitAmount, 1, depositAmount);
@@ -211,9 +222,7 @@ contract ReliquaryTest is ERC721Holder, Test {
         reliquary.split(relicId, splitAmount, address(this));
     }
 
-    function testShift(uint256 depositAmount1, uint256 depositAmount2, uint256 shiftAmount)
-        public
-    {
+    function testShift(uint256 depositAmount1, uint256 depositAmount2, uint256 shiftAmount) public {
         depositAmount1 = bound(depositAmount1, 1, testToken.balanceOf(address(this)) - 1);
         depositAmount2 =
             bound(depositAmount2, 1, testToken.balanceOf(address(this)) - depositAmount1);
@@ -334,40 +343,163 @@ contract ReliquaryTest is ERC721Holder, Test {
         reliquary.createRelicAndDeposit(address(this), 0, 1000);
     }
 
-    function testLock() public {
-        uint256 startTime = block.timestamp;
-        console.log("start time: ", startTime);
-        reliquary.setLockEndTime(startTime + 120 days);
-        console.log("lock end time: ", startTime + 120 days);
-        uint256 id = reliquary.createRelicAndDeposit(address(this), 0, 1000);
-        console.log("relic id: ", id);
-        vm.expectRevert(IReliquary.Reliquary__LOCKED.selector);
-        reliquary.withdraw(850, id, address(this));
-        vm.expectRevert(IReliquary.Reliquary__LOCKED.selector);
-        reliquary.withdraw(1000, id, address(this));
-        vm.expectRevert(IReliquary.Reliquary__LOCKED.selector);
-        reliquary.emergencyWithdraw(id);
+    function testMinStakingDeposit(uint256 amount) public {
+        amount = bound(amount, 2, 6000e18);
+        uint256 id = reliquary.createRelicAndDeposit(address(this), 0, 1);
+        reliquary.setMinStakingAmount(amount);
 
-        // Skip to time before lock end but after some rewards accumulate
-        vm.warp(startTime + 50 days);
-        uint256 oldOathBalance = oath.balanceOf(address(this));
-        reliquary.update(id, address(this));
-        uint256 deltaBalance = oath.balanceOf(address(this)) - oldOathBalance;
-        console.log("change in oath balance after update: ", deltaBalance);
-        assertGt(deltaBalance, 0);
-        reliquary.deposit(1001, id, address(this));
+        vm.expectRevert(IReliquary.Reliquary__WRONG_INPUT.selector);
+        reliquary.deposit(amount - 2, id, address(this));
 
-        // Skip to time after lock end
-        vm.warp(startTime + 120 days + 1);
-        uint256 oldMockBalance = testToken.balanceOf(address(this));
-        reliquary.withdraw(1001, id, address(this));
-        deltaBalance = testToken.balanceOf(address(this)) - oldMockBalance;
-        console.log("change in mock balance after withdraw: ", deltaBalance);
-        assertEq(deltaBalance, 1001);
-        oldMockBalance = testToken.balanceOf(address(this));
-        reliquary.emergencyWithdraw(id);
-        deltaBalance = testToken.balanceOf(address(this)) - oldMockBalance;
-        console.log("change in mock balance after emergency withdraw: ", deltaBalance);
-        assertEq(deltaBalance, 1000);
+        reliquary.deposit(amount, id, address(this));
+    }
+
+    function testMultipleInitalizationRevert() public {
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        reliquary.initialize(
+            address(oath), emissionRate - 1, "Reliquary Depositt", "REELIC", 1, address(0)
+        );
+    }
+
+    function testInitialized() public {
+        assertEq(reliquary.rewardToken(), address(oath));
+        assertEq(reliquary.emissionRate(), emissionRate);
+    }
+
+    function testImplementationAddressSet() public {
+        address implAddress = address(
+            uint160(uint256(vm.load(address(reliquary), ERC1967Utils.IMPLEMENTATION_SLOT)))
+        );
+        assertNotEq(implAddress, address(0));
+        assertTrue(implAddress != address(reliquary));
+    }
+
+    function testUpgradeToV2() public {
+        // Deploy V2 implementation
+        ReliquaryV2 implV2 = new ReliquaryV2();
+
+        // Upgrade proxy to V2
+        vm.expectEmit(true, true, false, false, address(reliquary));
+        emit IERC1967.Upgraded(address(implV2));
+        reliquary.upgradeToAndCall(address(implV2), "");
+
+        // Verify implementation address changed
+        address newImplAddress = address(
+            uint160(uint256(vm.load(address(reliquary), ERC1967Utils.IMPLEMENTATION_SLOT)))
+        );
+        assertEq(newImplAddress, address(implV2));
+        assertNotEq(newImplAddress, address(reliquary));
+    }
+
+    // Test storage preserved after upgrade
+    function testStoragePreservedAfterUpgrade() public {
+        // Store initial values in V1
+        uint256 initialEmissionRate = reliquary.emissionRate();
+        address initialRewardToken = reliquary.rewardToken();
+
+        // Deploy V2 and upgrade
+        ReliquaryV2 implV2 = new ReliquaryV2();
+        reliquary.upgradeToAndCall(address(implV2), "");
+
+        // Cast to V2 and check storage
+        ReliquaryV2 reliquaryV2AfterUpgrade = ReliquaryV2(address(reliquary));
+
+        // Verify storage not corrupted
+        assertEq(reliquaryV2AfterUpgrade.emissionRate(), initialEmissionRate);
+        assertEq(reliquaryV2AfterUpgrade.rewardToken(), initialRewardToken);
+        assertEq(reliquaryV2AfterUpgrade.minStakingAmount(), 0);
+    }
+
+    // Test new V2 functions are accessible
+    function testNewV2FunctionsAccessible(uint256 amount) public {
+        // Upgrade to V2
+        ReliquaryV2 implV2 = new ReliquaryV2();
+        reliquary.upgradeToAndCall(address(implV2), "");
+
+        ReliquaryV2 v2Proxy = ReliquaryV2(address(reliquary));
+
+        // Test new V2 function
+        amount = bound(amount, 1, testToken.balanceOf(address(this)));
+        uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, amount);
+        uint256 initialAmount = testToken.balanceOf(address(this));
+        v2Proxy.emergencyWithdraw(relicId);
+        console2.log("Initial amount:", initialAmount);
+        console2.log("Final amount:", testToken.balanceOf(address(this)));
+        assertEq(testToken.balanceOf(address(this)), initialAmount + amount);
+    }
+
+    function testV2InitializationRevert() public {
+        ReliquaryV2 implV2 = new ReliquaryV2();
+
+        bytes memory data = abi.encodeWithSelector(
+            Reliquary.initialize.selector,
+            makeAddr("NewAddr"), // _rewardToken
+            emissionRate + 2, // _emissionRate
+            "ReliquaryV2 Deposit", // _name
+            "RELIC2", // _symbol
+            uint256(2e6), // _minStakingAmount
+            address(0)
+        );
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        reliquary.upgradeToAndCall(address(implV2), data);
+
+        ReliquaryV2 v2Proxy = ReliquaryV2(address(reliquary));
+
+        // Initialization values shouldn't be changed
+        assertEq(v2Proxy.rewardToken(), address(oath));
+        assertEq(v2Proxy.emissionRate(), emissionRate);
+        assertEq(v2Proxy.minStakingAmount(), 0);
+    }
+
+    function testOnlyOwnerCanUpgrade() public {
+        ReliquaryV2 implV2 = new ReliquaryV2();
+        address nonOwner = makeAddr("nonOwner");
+
+        vm.prank(nonOwner);
+        vm.expectRevert();
+        reliquary.upgradeToAndCall(address(implV2), "");
+    }
+
+    // Test storage layout compatibility - NO VARIABLE REORDERING
+    function testStorageLayoutCompatibility() public {
+        // Record all original storage values
+        address originalRewardToken = reliquary.rewardToken();
+        uint256 originalEmissionRate = reliquary.emissionRate();
+        uint256 originalMinStakingAmount = reliquary.minStakingAmount();
+
+        // Upgrade to V2
+        ReliquaryV2 implV2 = new ReliquaryV2();
+        reliquary.upgradeToAndCall(address(implV2), "");
+
+        // Cast and verify original storage preserved
+        ReliquaryV2 v2Proxy = ReliquaryV2(address(reliquary));
+
+        // ✓ All original storage preserved in same slots
+        assertEq(v2Proxy.rewardToken(), originalRewardToken);
+        assertEq(v2Proxy.emissionRate(), originalEmissionRate);
+        assertEq(v2Proxy.minStakingAmount(), originalMinStakingAmount);
+    }
+
+    // Test multiple state mutations before and after upgrade
+    function testMultipleStateChangesPreserved(uint256 amountA, uint256 amountB) public {
+        // For now, just verify the structure supports state changes
+        uint256 preUpgradeEmissionRate = reliquary.emissionRate();
+        assertEq(preUpgradeEmissionRate, emissionRate);
+
+        amountA = bound(amountA, 1, type(uint256).max / 2);
+        amountB = bound(amountB, 1, type(uint256).max / 2);
+        vm.assume(amountA + amountB <= testToken.balanceOf(address(this)));
+        uint256 relicId = reliquary.createRelicAndDeposit(address(this), 0, amountA);
+        reliquary.deposit(amountB, relicId, address(0));
+        assertEq(reliquary.getPositionForId(relicId).amount, amountA + amountB);
+
+        // After upgrade
+        ReliquaryV2 implV2 = new ReliquaryV2();
+        reliquary.upgradeToAndCall(address(implV2), "");
+
+        ReliquaryV2 v2Proxy = ReliquaryV2(address(reliquary));
+        assertEq(v2Proxy.emissionRate(), preUpgradeEmissionRate);
+        assertEq(reliquary.getPositionForId(relicId).amount, amountA + amountB);
     }
 }

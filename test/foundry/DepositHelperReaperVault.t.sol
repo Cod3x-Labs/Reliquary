@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.24;
 
 import "forge-std/Test.sol";
 import "openzeppelin-contracts/contracts/token/ERC721/utils/ERC721Holder.sol";
@@ -7,6 +7,10 @@ import "contracts/helpers/DepositHelperReaperVault.sol";
 import "contracts/nft_descriptors/NFTDescriptor.sol";
 import "contracts/Reliquary.sol";
 import "contracts/curves/LinearCurve.sol";
+import {
+    IAccessControlEnumerable
+} from "lib/openzeppelin-contracts/contracts/access/extensions/IAccessControlEnumerable.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 interface IReaperVaultTest is IReaperVault {
     function balance() external view returns (uint256);
@@ -41,7 +45,17 @@ contract DepositHelperReaperVaultTest is ERC721Holder, Test {
         vm.createSelectFork("optimism", 111980000);
 
         oath = IERC20(0x00e1724885473B63bCE08a9f0a52F35b0979e35A);
-        reliquary = new Reliquary(address(oath), emissionRate, "Reliquary Deposit", "RELIC", 0);
+        Reliquary reliquaryImpl = new Reliquary();
+        bytes memory data = abi.encodeWithSelector(
+            Reliquary.initialize.selector,
+            address(oath), // _rewardToken
+            emissionRate, // _emissionRate
+            "Reliquary Deposit", // _name
+            "RELIC", // _symbol
+            uint256(0), // _minStakingAmount
+            address(0) // _cooldownWithdrawal
+        );
+        reliquary = Reliquary(address(new ERC1967Proxy(address(reliquaryImpl), data)));
         linearCurve = new LinearCurve(slope, minMultiplier);
 
         address nftDescriptor = address(new NFTDescriptor(address(reliquary)));

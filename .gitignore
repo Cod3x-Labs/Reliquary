@@ -29,3 +29,7 @@ corpus/
 **/crytic-compile
 **/crytic-export
 **/corpus
+
+# Hook logs
+pre-log.json
+post-log.json

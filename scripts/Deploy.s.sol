@@ -10,6 +10,9 @@ import {DepositHelperERC4626} from "contracts/helpers/DepositHelperERC4626.sol";
 import {NFTDescriptor} from "contracts/nft_descriptors/NFTDescriptor.sol";
 import {ParentRollingRewarder} from "contracts/rewarders/ParentRollingRewarder.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {PolynomialPlateauCurve} from "contracts/curves/PolynomialPlateauCurve.sol";
+import {CooldownWithdrawal} from "contracts/CooldownWithdrawal.sol";
 
 contract Deploy is Script {
     using stdJson for string;
@@ -44,6 +47,11 @@ contract Deploy is Script {
         uint256 slope;
     }
 
+    struct PolynomialPlateauCurveParams {
+        int256[] coeffs;
+        uint256 plateauLevel;
+    }
+
     bytes32 constant OPERATOR = keccak256("OPERATOR");
     bytes32 constant EMISSION_RATE = keccak256("EMISSION_RATE");
     bytes32 constant GUARDIAN = keccak256("GUARDIAN");
@@ -60,7 +68,15 @@ contract Deploy is Script {
     mapping(uint256 => ParentRollingRewarder) parentForPoolId;
     LinearCurve[] linearCurves;
     LinearPlateauCurve[] linearPlateauCurves;
+    PolynomialPlateauCurve[] polynomialPlateauCurves;
     address depositHelper4626;
+
+    // Tracked addresses for JSON output
+    address reliquaryImplAddr;
+    address cooldownWithdrawalAddr;
+    address[] nftDescriptorAddrs;
+    address[] parentRewarderAddrs;
+    address[] childRewarderAddrs;
 
     function run() external {
         config = vm.readFile("scripts/deploy_conf.json");
@@ -73,7 +89,8 @@ contract Deploy is Script {
         rewardToken = config.readAddress(".rewardToken");
         guardianRole = config.readAddress(".guardianRole");
         uint256 emissionRate = config.readUint(".emissionRate");
-        uint256 lockEndTime = config.readUint(".lockEndTime");
+        uint256 minStakingAmount = config.readUint(".minStakingAmount");
+        uint256 cooldownPeriod = config.readUint(".cooldownPeriod");
         Pool[] memory pools = abi.decode(config.parseRaw(".pools"), (Pool[]));
         poolCount = pools.length;
 
@@ -81,7 +98,22 @@ contract Deploy is Script {
 
         _deployCurves();
 
-        reliquary = new Reliquary(rewardToken, emissionRate, name, symbol, lockEndTime);
+        Reliquary reliquaryImpl = new Reliquary();
+        reliquaryImplAddr = address(reliquaryImpl);
+        console2.log("1.Reliquary(impl): ", address(reliquaryImpl));
+        bytes memory data = abi.encodeWithSelector(
+            Reliquary.initialize.selector,
+            address(rewardToken), // _rewardToken
+            emissionRate, // _emissionRate
+            name, // _name
+            symbol, // _symbol
+            0, // stubbed to 0 and later updated with non zero value if needed
+            address(0) // _cooldownWithdrawal
+        );
+
+        ERC1967Proxy proxy = new ERC1967Proxy(address(reliquaryImpl), data);
+        reliquary = Reliquary(address(proxy));
+        console2.log("1.Reliquary(proxy): ", address(reliquary));
 
         _deployRewarders();
 
@@ -95,12 +127,15 @@ contract Deploy is Script {
                 curve = linearCurves[pool.curveIndex];
             } else if (curveTypeHash == keccak256("linearPlateauCurve")) {
                 curve = linearPlateauCurves[pool.curveIndex];
+            } else if (curveTypeHash == keccak256("polynomialPlateauCurve")) {
+                curve = polynomialPlateauCurves[pool.curveIndex];
             } else {
                 revert(string.concat("invalid curve type ", pool.curveType));
             }
 
             _deployHelpers(pool.tokenType);
             address nftDescriptor = address(new NFTDescriptor(address(reliquary)));
+            nftDescriptorAddrs.push(nftDescriptor);
 
             ERC20(pool.poolToken).approve(address(reliquary), 1); // approve 1 wei to bootstrap the pool
             reliquary.addPool(
@@ -117,13 +152,28 @@ contract Deploy is Script {
 
         _createChildRewarders();
 
-        if (multisig != address(0)) {
-            _renounceRoles();
+        if (minStakingAmount > 0) {
+            reliquary.setMinStakingAmount(minStakingAmount);
         }
+
+        if (cooldownPeriod > 0) {
+            CooldownWithdrawal cooldownWithdrawal =
+                new CooldownWithdrawal(uint64(cooldownPeriod), address(reliquary));
+            cooldownWithdrawalAddr = address(cooldownWithdrawal);
+            console2.log("3.Cooldown ", address(cooldownWithdrawal));
+            reliquary.setCooldownWithdrawal(address(cooldownWithdrawal));
+            cooldownWithdrawal.transferOwnership(multisig);
+        }
+
+        // if (multisig != address(0)) {
+        //     _renounceRoles();
+        // }
 
         vm.stopBroadcast();
 
-        _asserts();
+        _writeDeployment();
+
+        // _asserts();
     }
 
     function _deployRewarders() internal {
@@ -131,12 +181,14 @@ contract Deploy is Script {
             abi.decode(config.parseRaw(".parentRewarders"), (ParentRewarderParams[]));
         ParentRollingRewarder[] memory parentRewarders =
             new ParentRollingRewarder[](parentParams.length);
+        console2.log("2.Rewarders deployment");
         for (uint256 i; i < parentParams.length; ++i) {
             ParentRewarderParams memory params = parentParams[i];
 
             ParentRollingRewarder newParent = new ParentRollingRewarder();
-
+            console2.log("- ", address(newParent));
             parentRewarders[i] = newParent;
+            parentRewarderAddrs.push(address(newParent));
             parentForPoolId[params.poolId] = newParent;
         }
     }
@@ -150,16 +202,19 @@ contract Deploy is Script {
 
         for (uint256 i; i < poolCount; ++i) {
             ParentRollingRewarder parent = ParentRollingRewarder(parentForPoolId[i]);
-            parent.createChild(children[i].rewarderToken);
+            address child = parent.createChild(children[i].rewarderToken);
+            childRewarderAddrs.push(child);
         }
     }
 
     function _deployCurves() internal {
         LinearCurveParams[] memory linearCurveParams =
             abi.decode(config.parseRaw(".linearCurves"), (LinearCurveParams[]));
+        console2.log("Curves: ");
         for (uint256 i; i < linearCurveParams.length; ++i) {
             LinearCurveParams memory params = linearCurveParams[i];
             linearCurves.push(new LinearCurve(params.slope, params.minMultiplier));
+            console2.log("- ", address(linearCurves[linearCurves.length - 1]));
         }
 
         LinearPlateauCurveParams[] memory linearPlateauCurveParams =
@@ -169,6 +224,18 @@ contract Deploy is Script {
             linearPlateauCurves.push(
                 new LinearPlateauCurve(params.slope, params.minMultiplier, params.plateauLevel)
             );
+            console2.log("- ", address(linearPlateauCurves[linearPlateauCurves.length - 1]));
+        }
+
+        PolynomialPlateauCurveParams[] memory polynomialPlateauCurveParams = abi.decode(
+            config.parseRaw(".polynomialPlateauCurves"), (PolynomialPlateauCurveParams[])
+        );
+        for (uint256 i; i < polynomialPlateauCurveParams.length; ++i) {
+            PolynomialPlateauCurveParams memory params = polynomialPlateauCurveParams[i];
+            polynomialPlateauCurves.push(
+                new PolynomialPlateauCurve(params.coeffs, params.plateauLevel)
+            );
+            console2.log("- ", address(polynomialPlateauCurves[polynomialPlateauCurves.length - 1]));
         }
     }
 
@@ -206,6 +273,46 @@ contract Deploy is Script {
                 }
             }
         }
+    }
+
+    function _writeDeployment() internal {
+        string memory obj = "deployment";
+
+        vm.serializeAddress(obj, "reliquaryImpl", reliquaryImplAddr);
+        vm.serializeAddress(obj, "reliquaryProxy", address(reliquary));
+        vm.serializeAddress(obj, "cooldownWithdrawal", cooldownWithdrawalAddr);
+        vm.serializeAddress(obj, "depositHelper4626", depositHelper4626);
+
+        // Curves
+        address[] memory lc = new address[](linearCurves.length);
+        for (uint256 i; i < linearCurves.length; i++) {
+            lc[i] = address(linearCurves[i]);
+        }
+        vm.serializeAddress(obj, "linearCurves", lc);
+
+        address[] memory lpc = new address[](linearPlateauCurves.length);
+        for (uint256 i; i < linearPlateauCurves.length; i++) {
+            lpc[i] = address(linearPlateauCurves[i]);
+        }
+        vm.serializeAddress(obj, "linearPlateauCurves", lpc);
+
+        address[] memory ppc = new address[](polynomialPlateauCurves.length);
+        for (uint256 i; i < polynomialPlateauCurves.length; i++) {
+            ppc[i] = address(polynomialPlateauCurves[i]);
+        }
+        vm.serializeAddress(obj, "polynomialPlateauCurves", ppc);
+
+        // Rewarders
+        vm.serializeAddress(obj, "parentRewarders", parentRewarderAddrs);
+        vm.serializeAddress(obj, "childRewarders", childRewarderAddrs);
+
+        // NFT descriptors — last call captures the full JSON
+        string memory finalJson = vm.serializeAddress(obj, "nftDescriptors", nftDescriptorAddrs);
+
+        string memory outputPath =
+            string.concat("deployments/", vm.toString(block.chainid), "_deployment.json");
+        vm.writeJson(finalJson, outputPath);
+        console2.log("Deployment written to:", outputPath);
     }
 
     function _asserts() internal view {

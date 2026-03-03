@@ -11,12 +11,12 @@ import {
     IERC165,
     MAX_SUPPLY_ALLOWED,
     ACC_REWARD_PRECISION
-} from "./interfaces/IReliquary.sol";
-import {IParentRollingRewarder} from "./interfaces/IParentRollingRewarder.sol";
-import {IRewarder} from "./interfaces/IRewarder.sol";
-import {INFTDescriptor} from "./interfaces/INFTDescriptor.sol";
-import {ReliquaryLogic} from "./libraries/ReliquaryLogic.sol";
-import "./libraries/ReliquaryEvents.sol";
+} from "../../../contracts/interfaces/IReliquary.sol";
+import {IParentRollingRewarder} from "../../../contracts/interfaces/IParentRollingRewarder.sol";
+import {IRewarder} from "../../../contracts/interfaces/IRewarder.sol";
+import {INFTDescriptor} from "../../../contracts/interfaces/INFTDescriptor.sol";
+import {ReliquaryLogic} from "../../../contracts/libraries/ReliquaryLogic.sol";
+import "../../../contracts/libraries/ReliquaryEvents.sol";
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import "lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
@@ -49,8 +49,6 @@ import {
     Initializable
 } from "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
 
-import {CooldownWithdrawal} from "./CooldownWithdrawal.sol";
-
 /**
  * @title Reliquary
  * @author Justin Bebis, Zokunei, Beirao & the Byte Masons team
@@ -64,7 +62,7 @@ import {CooldownWithdrawal} from "./CooldownWithdrawal.sol";
  * increased composability without affecting accounting logic too much, and users can
  * trade their Relics without withdrawing liquidity or affecting the position's maturity.
  */
-contract Reliquary is
+contract ReliquaryV2 is
     Initializable,
     ERC721Upgradeable,
     ERC721EnumerableUpgradeable,
@@ -98,7 +96,6 @@ contract Reliquary is
     PoolInfo[] private poolInfo;
     /// @dev Info of each staked position.
     mapping(uint256 => PositionInfo) internal positionForId;
-
     address public cooldownWithdrawal;
 
     /**
@@ -132,12 +129,6 @@ contract Reliquary is
     }
 
     // -------------- admin functions --------------
-
-    /**
-     * @notice Authorize contract upgrade.
-     * @dev Restricted to `DEFAULT_ADMIN_ROLE` via `onlyRole` modifier.
-     * @param newImplementation Address of the new implementation contract.
-     */
     function _authorizeUpgrade(address newImplementation)
         internal
         override
@@ -391,7 +382,6 @@ contract Reliquary is
         whenNotPaused
     {
         _requireApprovedOrOwner(_relicId);
-        _withdraw(_amount, _relicId, _harvestTo);
     }
 
     /**
@@ -694,10 +684,7 @@ contract Reliquary is
      * @param _relicId The NFT ID of the position on which the deposit is to be made.
      */
     function _deposit(uint256 _amount, uint256 _relicId, address _harvestTo) internal {
-        PositionInfo memory position = positionForId[_relicId];
-        if (_amount == 0 || position.amount + _amount < minStakingAmount) {
-            revert Reliquary__WRONG_INPUT();
-        }
+        if (_amount == 0 || _amount < minStakingAmount) revert Reliquary__WRONG_INPUT();
 
         uint8 poolId_ = _updatePosition(_amount, _relicId, Kind.DEPOSIT, _harvestTo);
 
@@ -707,22 +694,30 @@ contract Reliquary is
     }
 
     /**
-     * @dev Internal withdraw function that assumes `relicId` is valid.
-     * @param _amount Amount to withdraw.
-     * @param _relicId The NFT ID of the position on which the withdraw is to be made.
+     * @notice Withdraw without caring about rewards. EMERGENCY ONLY.
+     * @param _relicId NFT ID of the position to emergency withdraw from and burn.
      */
-    function _withdraw(uint256 _amount, uint256 _relicId, address _harvestTo) internal {
-        if (_amount == 0) revert Reliquary__WRONG_INPUT();
+    function emergencyWithdraw(uint256 _relicId) external nonReentrant {
+        address to_ = ownerOf(_relicId);
+        if (to_ != msg.sender) revert Reliquary__NOT_OWNER();
 
-        uint8 poolId_ = _updatePosition(_amount, _relicId, Kind.WITHDRAW, _harvestTo);
-        IERC20 poolToken = IERC20(poolInfo[poolId_].poolToken);
-        if (cooldownWithdrawal == address(0)) {
-            poolToken.safeTransfer(msg.sender, _amount);
-        } else {
-            poolToken.forceApprove(cooldownWithdrawal, _amount);
-            CooldownWithdrawal(cooldownWithdrawal).registerWithdrawal(msg.sender, poolId_, _amount);
-        }
-        emit ReliquaryEvents.Withdraw(poolId_, _amount, msg.sender, _relicId);
+        PositionInfo storage position = positionForId[_relicId];
+
+        uint256 amount_ = uint256(position.amount);
+        uint8 poolId_ = position.poolId;
+
+        PoolInfo storage pool = poolInfo[poolId_];
+
+        ReliquaryLogic._updatePool(pool, emissionRate, totalAllocPoint);
+
+        pool.totalLpSupplied -= amount_ * pool.curve.getFunction(uint256(position.level));
+
+        _burn(_relicId);
+        delete positionForId[_relicId];
+
+        IERC20(pool.poolToken).safeTransfer(to_, amount_);
+
+        // emit ReliquaryEvents.EmergencyWithdraw(poolId_, amount_, to_, _relicId);
     }
 
     /**
@@ -845,14 +840,6 @@ contract Reliquary is
             .constructTokenURI(_relicId);
     }
 
-    /**
-     * @notice Internal override for ERC721 `_update` hook required by multiple extensions.
-     * @dev Forwards to parent implementations from `ERC721Upgradeable`, `ERC721EnumerableUpgradeable`, and `ERC721PausableUpgradeable`.
-     * @param to Address to set as owner in the update.
-     * @param tokenId Token identifier being updated.
-     * @param auth Authorization address used by the underlying implementations.
-     * @return Address returned by parent `_update`.
-     */
     function _update(address to, uint256 tokenId, address auth)
         internal
         override(ERC721Upgradeable, ERC721EnumerableUpgradeable, ERC721PausableUpgradeable)
@@ -861,12 +848,6 @@ contract Reliquary is
         return super._update(to, tokenId, auth);
     }
 
-    /**
-     * @notice Internal override to increase an account's ERC721 balance.
-     * @dev Required override when combining `ERC721Upgradeable` with `ERC721EnumerableUpgradeable`.
-     * @param account Account whose balance is increased.
-     * @param value Amount to increase the balance by.
-     */
     function _increaseBalance(address account, uint128 value)
         internal
         override(ERC721Upgradeable, ERC721EnumerableUpgradeable)

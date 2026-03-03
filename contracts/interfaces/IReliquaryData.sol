@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.24;
 
 import "contracts/interfaces/ICurvesData.sol";
 import "lib/openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
@@ -71,7 +71,7 @@ interface IReliquaryData is IERC721 {
     error Reliquary__TOKEN_NOT_COMPATIBLE();
     error Reliquary__ZERO_TOTAL_ALLOC_POINT();
     error Reliquary__NON_EXISTENT_POOL();
-    error Reliquary__ZERO_INPUT();
+    error Reliquary__WRONG_INPUT();
     error Reliquary__NOT_OWNER();
     error Reliquary__DUPLICATE_RELIC_IDS();
     error Reliquary__RELICS_NOT_OF_SAME_POOL();
@@ -115,8 +115,6 @@ interface IReliquaryData is IERC721 {
 
     function update(uint256 _relicId, address _harvestTo) external;
 
-    function emergencyWithdraw(uint256 _relicId) external;
-
     function poolLength() external view returns (uint256 pools_);
 
     function getPositionForId(uint256 _posId) external view returns (PositionInfo memory);
@@ -150,4 +148,10 @@ interface IReliquaryData is IERC721 {
     function totalAllocPoint() external view returns (uint256);
 
     function tokenOfOwnerByIndex(address _owner, uint256 _index) external view returns (uint256);
+
+    function minStakingAmount() external view returns (uint256);
+
+    function cooldownWithdrawal() external view returns (address);
+
+    function paused() external view returns (bool);
 }

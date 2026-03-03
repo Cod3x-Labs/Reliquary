@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.23;
+pragma solidity 0.8.24;
 
 import "../interfaces/IReliquary.sol";
 import "../interfaces/IRewarder.sol";
@@ -47,7 +47,7 @@ library ReliquaryLogic {
         uint256 _emissionRate,
         uint256 _totalAllocPoint,
         address _rewardToken
-    ) internal returns (uint256) {
+    ) external returns (uint256) {
         uint256 accRewardPerShare_ = _updatePool(pool, _emissionRate, _totalAllocPoint);
 
         LocalVariables_updateRelic memory vars_;
@@ -122,7 +122,7 @@ library ReliquaryLogic {
      * @return accRewardPerShare_ The updated accumulated reward per share.
      */
     function _updatePool(PoolInfo storage pool, uint256 _emissionRate, uint256 _totalAllocPoint)
-        internal
+        public
         returns (uint256 accRewardPerShare_)
     {
         uint256 timestamp_ = block.timestamp;
@@ -156,7 +156,7 @@ library ReliquaryLogic {
         PoolInfo[] storage poolInfo,
         uint256 _emissionRate,
         uint256 _totalAllocPoint
-    ) internal {
+    ) external {
         for (uint256 i_; i_ < poolInfo.length; ++i_) {
             _updatePool(poolInfo[i_], _emissionRate, _totalAllocPoint);
         }
@@ -180,7 +180,7 @@ library ReliquaryLogic {
         uint256 _amount,
         uint256 _toAmount,
         uint256 _newToAmount
-    ) internal {
+    ) external {
         ICurves curve_ = pool.curve;
 
         if (_fromLevel != _newToLevel) {
@@ -206,7 +206,7 @@ library ReliquaryLogic {
      * @return newLevel_ Level of position after update.
      */
     function _updateLevel(PositionInfo storage position, uint256 _oldLevel)
-        internal
+        public
         returns (uint256 newLevel_)
     {
         newLevel_ = block.timestamp - uint256(position.entry);
@@ -228,7 +228,7 @@ library ReliquaryLogic {
         uint256 _entryBefore,
         uint256 _amountAdded,
         uint256 _entryAdded
-    ) internal pure returns (uint40 weightedEntry_) {
+    ) public pure returns (uint40 weightedEntry_) {
         weightedEntry_ = uint40(
             Math.ceilDiv(
                 _amountBefore * _entryBefore + _amountAdded * _entryAdded,
