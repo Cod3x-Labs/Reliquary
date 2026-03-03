@@ -129,25 +129,35 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
     }
 
-    // function testRealContract() public {
-    //     address user = makeAddr("mainUser");
-    //     deal(CDX, user, 10000e18);
-    //     reliquary = Reliquary(0x32E570927836251160C40361D5e7b3c38c4e7adf);
-    //     vm.startPrank(user);
-    //     ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
-    //     uint256 relicId = reliquary.createRelicAndDeposit(user, 0, 5000e18);
-    //     skip(1 hours);
-    //     reliquary.deposit(5000e18, relicId, user);
-    //     // vm.expectRevert();
-    //     // reliquary.createRelicAndDeposit(user, 0, 5e18);
+    function testRealContract() public {
+        address user = 0x69258d1ed30A0e5971992921cb5787b9c7a2909D;
+        // deal(CDX, user, 10000e18);
+        reliquary = Reliquary(0x599D7EBcA6A692F66568e3133d54a30771A2bE1E);
+        vm.startPrank(user);
+        uint256 relicId = reliquary.tokenOfOwnerByIndex(user, 0);
+        PositionInfo memory position = reliquary.getPositionForId(relicId);
+        console.log("=== PositionInfo ===");
+        console.log("rewardDebt:  ", position.rewardDebt);
+        console.log("rewardCredit:", position.rewardCredit);
+        console.log("amount:      ", position.amount);
+        console.log("entry:       ", position.entry);
+        console.log("level:       ", position.level);
+        console.log("poolId:      ", position.poolId);
+        reliquary.burn(351);
+        // ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
+        // uint256 relicId = reliquary.createRelicAndDeposit(user, 0, 2000000000000000000);
+        // skip(1 hours);
+        // reliquary.deposit(1e18, relicId, user);
+        // vm.expectRevert();
+        // reliquary.createRelicAndDeposit(user, 0, 5e18);
 
-    //     // vm.stopPrank();
-    //     // vm.prank(0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b);
-    //     // reliquary.setMinStakingAmount(10);
+        // vm.stopPrank();
+        // vm.prank(0xfEfcb2fb19b9A70B30646Fdc1A0860Eb12F7ff8b);
+        // reliquary.setMinStakingAmount(10);
 
-    //     // vm.prank(user);
-    //     // reliquary.createRelicAndDeposit(user, 0, 5e18);
-    // }
+        // vm.prank(user);
+        // reliquary.createRelicAndDeposit(user, 0, 5e18);
+    }
 
     function testDistributionPeriodWorking(uint256 amount, uint256 time) public {
         MultipleUsers memory multipleUsers;
@@ -587,6 +597,7 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         uint256 amount,
         uint256 time
     ) public {
+        uint256 distributionPeriod = 28 days;
         MultipleUsers memory multipleUsers;
         multipleUsers.mainUser = makeAddr("mainUser");
         multipleUsers.user1 = makeAddr("User1");
@@ -600,11 +611,11 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
 
         reliquary.setCooldownWithdrawal(address(0));
         testToken.mint(address(reliquary), 0); // 0 main reward from parent
-        time = 3 days; //bound(time, 0, 365 days);
+        time = 2 days; //bound(time, 0, 365 days);
         childRewarders.push(RollingRewarder(parentRewarder.createChild(USDC)));
-        childRewarders[0].updateDistributionPeriod(14 days);
+        childRewarders[0].updateDistributionPeriod(distributionPeriod);
         ERC20Mock(USDC).approve(address(childRewarders[0]), type(uint256).max);
-        childRewarders[0].fund(100e6);
+        childRewarders[0].fund(50e6);
         amount = 1000e18; //bound(amount, 1, IERC20(CDX).balanceOf(address(this)));
 
         vm.startPrank(multipleUsers.mainUser);
@@ -614,12 +625,14 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
         vm.stopPrank();
 
         multipleUsers.mainUserPrevBalance = IERC20(USDC).balanceOf(multipleUsers.mainUser);
-        for (uint256 idx = 0; idx < 400 days; idx += time) {
-            if (idx % 14 days == 0 && idx != 0) {
-                childRewarders[0].updateDistributionPeriod(14 days);
-                childRewarders[0].fund((idx / 1 days) * 100e6);
+        for (uint256 idx = 0; idx < 300 days; idx += time) {
+            if (idx % distributionPeriod == 0 && idx != 0) {
+                childRewarders[0].updateDistributionPeriod(distributionPeriod);
             }
-            if (idx == 90 days) {
+            if (idx % 14 days == 0 && idx != 0) {
+                childRewarders[0].fund(50e6); //(idx / 1 days) * 100e6
+            }
+            if (idx == 20 days) {
                 vm.startPrank(multipleUsers.user1);
                 ERC20Mock(CDX).approve(address(reliquary), type(uint256).max);
                 multipleUsers.user1Relic =
@@ -738,7 +751,7 @@ contract ReliquaryDeploymentTest is ERC721Holder, Test {
 
             vm.prank(multipleUsers.mainUser);
             reliquary.update(multipleUsers.mainUserRelic, multipleUsers.mainUser);
-            if (idx >= 90 days) {
+            if (idx >= 20 days) {
                 vm.prank(multipleUsers.user1);
                 reliquary.update(multipleUsers.user1Relic, multipleUsers.user1);
             }

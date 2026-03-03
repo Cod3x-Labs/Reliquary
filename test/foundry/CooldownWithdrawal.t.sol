@@ -1688,4 +1688,240 @@ contract CooldownWithdrawalTest is ERC721Holder, Test {
         cooldownContract.executeAllMaturedWithdrawals();
         assertEq(cooldownContract.getUserPendingWithdrawalsLength(user1), 0);
     }
+
+    // ============ M-14: executeAllMaturedWithdrawals swap-and-pop bug ============
+
+    /// @notice Demonstrates that executeAllMaturedWithdrawals may fail to execute
+    /// the last withdrawal due to memory snapshot vs storage mutation interaction.
+    /// The function takes a memory snapshot of userPendingWithdrawals, then iterates
+    /// over it while _removeWithdrawalId modifies the underlying storage array via
+    /// swap-and-pop. This test checks whether all matured withdrawals are executed.
+    function test_M14_executeAllMaturedWithdrawals_LastNotExecuted() external {
+        // Give user1 enough balance for many withdrawals
+        token.mint(user1, 10000e18);
+        vm.startPrank(user1);
+        token.approve(address(reliquary), type(uint256).max);
+        reliquary.deposit(5000e18, user1RelicId, user1);
+        vm.stopPrank();
+
+        // Create 4 withdrawals for user1 (even number to test swap-and-pop edge cases)
+        uint256 smallAmount = 100e18;
+        vm.startPrank(user1);
+        reliquary.withdraw(smallAmount, user1RelicId, user1); // withdrawal ID 0
+        reliquary.withdraw(smallAmount * 2, user1RelicId, user1); // withdrawal ID 1
+        reliquary.withdraw(smallAmount * 3, user1RelicId, user1); // withdrawal ID 2
+        reliquary.withdraw(smallAmount * 4, user1RelicId, user1); // withdrawal ID 3
+        vm.stopPrank();
+
+        uint256[] memory idsBefore = cooldownContract.getUserPendingWithdrawals(user1);
+        assertEq(idsBefore.length, 4, "Should have 4 pending withdrawals");
+
+        // Record the exact IDs
+        uint256 id0 = idsBefore[0];
+        uint256 id1 = idsBefore[1];
+        uint256 id2 = idsBefore[2];
+        uint256 id3 = idsBefore[3];
+
+        console2.log("Withdrawal IDs before execution:");
+        console2.log("  id0:", id0);
+        console2.log("  id1:", id1);
+        console2.log("  id2:", id2);
+        console2.log("  id3:", id3);
+
+        // Warp past cooldown so ALL 4 are matured
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+
+        // Verify all 4 are ready
+        assertTrue(cooldownContract.isWithdrawalReady(id0), "id0 should be ready");
+        assertTrue(cooldownContract.isWithdrawalReady(id1), "id1 should be ready");
+        assertTrue(cooldownContract.isWithdrawalReady(id2), "id2 should be ready");
+        assertTrue(cooldownContract.isWithdrawalReady(id3), "id3 should be ready");
+
+        uint256 userBalanceBefore = token.balanceOf(user1);
+        uint256 contractBalanceBefore = token.balanceOf(address(cooldownContract));
+        uint256 expectedTotal = smallAmount + smallAmount * 2 + smallAmount * 3 + smallAmount * 4;
+
+        // Execute all matured withdrawals
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+
+        uint256 userBalanceAfter = token.balanceOf(user1);
+        uint256 contractBalanceAfter = token.balanceOf(address(cooldownContract));
+        uint256 actualReceived = userBalanceAfter - userBalanceBefore;
+
+        console2.log("Expected total:", expectedTotal);
+        console2.log("Actual received:", actualReceived);
+        console2.log("Pending remaining:", cooldownContract.getUserPendingWithdrawalsLength(user1));
+
+        // Check if ALL withdrawals were executed
+        // M-14 claims the last withdrawal is skipped
+        bool id0Executed = cooldownContract.getWithdrawalDetails(id0).executed;
+        bool id1Executed = cooldownContract.getWithdrawalDetails(id1).executed;
+        bool id2Executed = cooldownContract.getWithdrawalDetails(id2).executed;
+        bool id3Executed = cooldownContract.getWithdrawalDetails(id3).executed;
+
+        console2.log("id0 executed:", id0Executed);
+        console2.log("id1 executed:", id1Executed);
+        console2.log("id2 executed:", id2Executed);
+        console2.log("id3 executed:", id3Executed);
+
+        // Assert all should be executed - if M-14 bug exists, last one won't be
+        assertEq(actualReceived, expectedTotal, "User should receive ALL withdrawal amounts");
+        assertEq(
+            cooldownContract.getUserPendingWithdrawalsLength(user1),
+            0,
+            "No pending withdrawals should remain"
+        );
+        assertTrue(id0Executed, "Withdrawal 0 should be executed");
+        assertTrue(id1Executed, "Withdrawal 1 should be executed");
+        assertTrue(id2Executed, "Withdrawal 2 should be executed");
+        assertTrue(id3Executed, "Withdrawal 3 should be executed");
+    }
+
+    /// @notice Test with 5 withdrawals where first is matured, last is matured,
+    /// and middle ones are NOT matured. Tests the swap-and-pop interaction when
+    /// matured withdrawals are at array boundaries.
+    function test_M14_executeAllMatured_BoundaryMatured() external {
+        token.mint(user1, 10000e18);
+        vm.startPrank(user1);
+        token.approve(address(reliquary), type(uint256).max);
+        reliquary.deposit(5000e18, user1RelicId, user1);
+        vm.stopPrank();
+
+        // Create first withdrawal (will be matured)
+        vm.prank(user1);
+        reliquary.withdraw(100e18, user1RelicId, user1);
+        uint256 firstId = cooldownContract.getUserPendingWithdrawals(user1)[0];
+
+        // Warp forward half the cooldown
+        vm.warp(block.timestamp + COOLDOWN_PERIOD / 2);
+
+        // Create 3 middle withdrawals (NOT yet matured when we execute)
+        vm.startPrank(user1);
+        reliquary.withdraw(200e18, user1RelicId, user1);
+        reliquary.withdraw(300e18, user1RelicId, user1);
+        reliquary.withdraw(400e18, user1RelicId, user1);
+        vm.stopPrank();
+
+        // Warp so first is matured but middle 3 are NOT
+        vm.warp(block.timestamp + COOLDOWN_PERIOD / 2 + 1);
+
+        // Create last withdrawal at this time
+        vm.prank(user1);
+        reliquary.withdraw(500e18, user1RelicId, user1);
+
+        uint256[] memory ids = cooldownContract.getUserPendingWithdrawals(user1);
+        assertEq(ids.length, 5, "Should have 5 pending withdrawals");
+
+        // Only the first should be matured at this point
+        assertTrue(cooldownContract.isWithdrawalReady(ids[0]), "First should be ready");
+        assertFalse(cooldownContract.isWithdrawalReady(ids[1]), "Second should NOT be ready");
+        assertFalse(cooldownContract.isWithdrawalReady(ids[2]), "Third should NOT be ready");
+        assertFalse(cooldownContract.isWithdrawalReady(ids[3]), "Fourth should NOT be ready");
+        assertFalse(cooldownContract.isWithdrawalReady(ids[4]), "Fifth should NOT be ready");
+
+        uint256 balBefore = token.balanceOf(user1);
+
+        // Execute all matured - should only execute the first one
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+
+        // After executing, the storage array has been modified via swap-and-pop
+        // First was removed: storage was [first, 2nd, 3rd, 4th, 5th]
+        // swap-and-pop: [5th, 2nd, 3rd, 4th]
+        uint256 balAfter = token.balanceOf(user1);
+        assertEq(balAfter - balBefore, 100e18, "Should only receive first withdrawal");
+        assertEq(
+            cooldownContract.getUserPendingWithdrawalsLength(user1),
+            4,
+            "4 withdrawals should remain"
+        );
+
+        // Now warp so ALL remaining are matured
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+
+        uint256[] memory remainingIds = cooldownContract.getUserPendingWithdrawals(user1);
+        console2.log("Remaining pending IDs after first batch:");
+        for (uint256 i = 0; i < remainingIds.length; i++) {
+            console2.log("  id:", remainingIds[i]);
+            assertTrue(
+                cooldownContract.isWithdrawalReady(remainingIds[i]), "All remaining should be ready"
+            );
+        }
+
+        uint256 balBefore2 = token.balanceOf(user1);
+        uint256 expectedRemaining = 200e18 + 300e18 + 400e18 + 500e18;
+
+        // Execute all remaining matured
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+
+        uint256 balAfter2 = token.balanceOf(user1);
+        uint256 actualRemaining = balAfter2 - balBefore2;
+
+        console2.log("Expected remaining:", expectedRemaining);
+        console2.log("Actual remaining:", actualRemaining);
+        console2.log("Pending after:", cooldownContract.getUserPendingWithdrawalsLength(user1));
+
+        // If M-14 bug exists, the last remaining withdrawal won't be executed
+        assertEq(actualRemaining, expectedRemaining, "Should receive all remaining withdrawals");
+        assertEq(
+            cooldownContract.getUserPendingWithdrawalsLength(user1),
+            0,
+            "No pending withdrawals should remain"
+        );
+    }
+
+    /// @notice Test with larger number of withdrawals to stress-test the
+    /// swap-and-pop interaction during batch execution.
+    function test_M14_executeAllMatured_ManyWithdrawals() external {
+        token.mint(user1, 100000e18);
+        vm.startPrank(user1);
+        token.approve(address(reliquary), type(uint256).max);
+        reliquary.deposit(50000e18, user1RelicId, user1);
+        vm.stopPrank();
+
+        // Create 10 withdrawals
+        uint256 totalExpected = 0;
+        vm.startPrank(user1);
+        for (uint256 i = 1; i <= 10; i++) {
+            uint256 amount = i * 50e18;
+            reliquary.withdraw(amount, user1RelicId, user1);
+            totalExpected += amount;
+        }
+        vm.stopPrank();
+
+        assertEq(
+            cooldownContract.getUserPendingWithdrawalsLength(user1), 10, "Should have 10 pending"
+        );
+
+        // Warp past cooldown
+        vm.warp(block.timestamp + COOLDOWN_PERIOD + 1);
+
+        uint256[] memory allIds = cooldownContract.getUserPendingWithdrawals(user1);
+        uint256 balBefore = token.balanceOf(user1);
+
+        // Execute all
+        vm.prank(user1);
+        cooldownContract.executeAllMaturedWithdrawals();
+
+        uint256 balAfter = token.balanceOf(user1);
+        uint256 pendingAfter = cooldownContract.getUserPendingWithdrawalsLength(user1);
+
+        console2.log("10 withdrawals test:");
+        console2.log("  Expected:", totalExpected);
+        console2.log("  Received:", balAfter - balBefore);
+        console2.log("  Pending after:", pendingAfter);
+
+        // Verify ALL were executed
+        for (uint256 i = 0; i < allIds.length; i++) {
+            assertTrue(
+                cooldownContract.getWithdrawalDetails(allIds[i]).executed,
+                string.concat("Withdrawal ", vm.toString(allIds[i]), " should be executed")
+            );
+        }
+
+        assertEq(balAfter - balBefore, totalExpected, "Should receive total of all withdrawals");
+        assertEq(pendingAfter, 0, "No pending withdrawals should remain");
+    }
 }
